@@ -24,10 +24,11 @@ Dev 1 has completed the entire infrastructure foundation. All APIs are live and 
 
 ### Phase 2: Auth & Rate Limiting (THIS WEEK)
 **Branch:** `feat/auth-middleware`
-- [ ] Implement `EdiAuthMiddleware` (app/Http/Middleware/EdiAuthMiddleware.php)
+- ✅ Implement `EdiAuthMiddleware` (app/Http/Middleware/EdiAuthMiddleware.php)
   - API key validation from header `Authorization: Bearer {token}`
   - IP whitelist check (from config/edi.php)
   - Optional HMAC signature verification
+- kinda did the two below din,pero pacheck na lang
 - [ ] Implement rate limiting middleware
 - [ ] Add to `routes/api.php`:
   ```php
@@ -443,4 +444,4 @@ Feature branches:
 2. Run locally: `docker compose up -d && npm run dev`
 3. Send test EDI via React dashboard: "Test EDI 850" button
 4. Verify: EDI received → parsed → stored in DB → order shows in dashboard
-5. Celebrate 🎉
+5. Celebrate 🎉 susunod na tasks naman
