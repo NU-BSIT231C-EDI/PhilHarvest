@@ -28,6 +28,9 @@ Standardizes B2B/B2C transactions using ANSI X12 005010, automating Purchase Ord
 | **Infrastructure** | ✅ | Docker Compose (PHP 8.2, MySQL 8, Redis 7) |
 | **Backend API** | ✅ | Laravel 11 with auth & rate limiting |
 | **EDI 850 Inbound** | ✅ | `POST /api/edi/850/receive` → 202 Accepted |
+| **CSV Format Support** | ✅ | Bidirectional X12 ↔ CSV conversion with audit trail |
+| **CSV Inbound** | ✅ | `POST /api/edi/csv/upload` - Direct CSV file upload |
+| **CSV Outbound** | ✅ | `GET /api/edi/transactions/{id}/csv` - Download CSV |
 | **Queue Processing** | ✅ | Redis queue with `php artisan queue:work` |
 | **Orders API** | ✅ | `GET /api/edi/orders` & `GET /api/edi/orders/{id}` |
 | **Authentication** | ✅ | Bearer token validation, partner ID extraction |
@@ -35,6 +38,10 @@ Standardizes B2B/B2C transactions using ANSI X12 005010, automating Purchase Ord
 | **React Frontend** | ✅ | TypeScript dashboard with order list & line items |
 | **TypeScript Config** | ✅ | Fixed all compilation errors (JSX, vite-env) |
 | **Database Models** | ✅ | PurchaseOrder, PurchaseOrderItem, EdiTransaction |
+
+**CSV Exchange Files:**
+- 📄 [CSV_FORMAT_EXCHANGE.md](CSV_FORMAT_EXCHANGE.md) - Complete CSV implementation guide
+- 📄 [CSV_QUICK_REFERENCE.md](CSV_QUICK_REFERENCE.md) - Quick reference for CSV API
 
 **Next Phase:** Dev 2-4 start on 855/856/810 builders, validation logic, and additional UI features.
 

@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: philharvest-app
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: singapore
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: APP_NAME
+        value: PhilHarvest
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: APP_KEY
+        sync: false
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        value: philharvest-mysql
+      - key: DB_PORT
+        value: 3306
+      - key: DB_DATABASE
+        value: philharvest
+      - key: DB_USERNAME
+        value: root
+      - key: DB_PASSWORD
+        sync: false
+      - key: REDIS_HOST
+        value: philharvest-redis
+      - key: REDIS_PORT
+        value: 6379
+      - key: QUEUE_CONNECTION
+        value: redis
+      - key: EDI_AUTH_TOKEN
+        value: test_token_here
+
+  - type: mysql
+    name: philharvest-mysql
+    version: "8.0"
+    plan: free
+    region: singapore
+    initializer:
+      type: sql
+      path: ./database/init.sql
+    envVars:
+      - key: MYSQL_ROOT_PASSWORD
+        sync: false
+      - key: MYSQL_DATABASE
+        value: philharvest
+
+  - type: redis
+    name: philharvest-redis
+    version: "7"
+    plan: free
+    region: singapore
