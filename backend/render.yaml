@@ -41,9 +41,6 @@ services:
     version: "8.0"
     plan: free
     region: singapore
-    initializer:
-      type: sql
-      path: ./database/init.sql
     envVars:
       - key: MYSQL_ROOT_PASSWORD
         sync: false
