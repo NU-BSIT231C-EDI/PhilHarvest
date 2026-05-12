@@ -53,7 +53,7 @@ export const api = {
     }
   },
 
-  async submitEdi(payload: string, partnerId: string = 'TESTPARTNER'): Promise<ApiResponse<{ transaction_id: number; control_number: string }>> {
+  async submitEdi(payload: string): Promise<ApiResponse<{ transaction_id: number; control_number: string }>> {
     try {
       const response = await fetch(`${API_URL}/api/edi/850/receive`, {
         method: 'POST',
