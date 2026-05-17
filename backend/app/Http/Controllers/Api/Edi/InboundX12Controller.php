@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Edi;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Database\QueryException;
 use App\Services\Edi\Parsers\Edi850Parser;
 use App\Services\Edi\Parsers\Edi990Parser;
 use App\Jobs\ProcessEdiInboundJob;
@@ -62,7 +63,7 @@ class InboundX12Controller
 
             $controlNumber = trim($dto->controlNumber);
 
-            // If ISA13 was already processed, return the existing transaction
+            // If ISA13 was already processed, return a dedicated handled response
             $existing = EdiTransaction::where('control_number', $controlNumber)->first();
             if ($existing) {
                 Log::info('Duplicate EDI 850 control number received', [
@@ -70,24 +71,37 @@ class InboundX12Controller
                     'transaction_id' => $existing->id,
                 ]);
 
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Duplicate interchange - already processed',
-                    'transaction_id' => $existing->id,
-                    'control_number' => $existing->control_number,
-                    'po_number' => $dto->poNumber,
-                ], Response::HTTP_ACCEPTED);
+                return $this->alreadyHandledResponse($existing->id, $existing->control_number, $dto->poNumber);
             }
 
             // Create transaction record
-            $transaction = EdiTransaction::create([
-                'transaction_type' => '850',
-                'control_number' => $controlNumber,
-                'partner_id' => $dto->manufacturerId,
-                'raw_payload' => $rawEdi,
-                'parsed_data' => $dto->toArray(),
-                'status' => 'PENDING',
-            ]);
+            try {
+                $transaction = EdiTransaction::create([
+                    'transaction_type' => '850',
+                    'control_number' => $controlNumber,
+                    'partner_id' => $dto->manufacturerId,
+                    'raw_payload' => $rawEdi,
+                    'parsed_data' => $dto->toArray(),
+                    'status' => 'PENDING',
+                ]);
+            } catch (QueryException $e) {
+                if ($this->isAlreadyHandledException($e)) {
+                    $existing = EdiTransaction::where('control_number', $controlNumber)->first();
+
+                    Log::info('EDI 850 create hit duplicate control number', [
+                        'control_number' => $controlNumber,
+                        'transaction_id' => $existing?->id,
+                    ]);
+
+                    return $this->alreadyHandledResponse(
+                        $existing?->id,
+                        $controlNumber,
+                        $dto->poNumber,
+                    );
+                }
+
+                throw $e;
+            }
 
             // Dispatch async job for processing.
             // If the queue backend is unavailable, fall back to sync so inbound
@@ -139,6 +153,34 @@ class InboundX12Controller
                 'message' => 'An unexpected error occurred processing the EDI document',
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+    }
+
+    /**
+     * Return a consistent response when the request has already been handled.
+     */
+    private function alreadyHandledResponse(?int $transactionId, string $controlNumber, ?string $poNumber = null)
+    {
+        return response()->json([
+            'error' => 'Already handled',
+            'handled' => true,
+            'already_processed' => true,
+            'message' => 'This EDI interchange has already been handled',
+            'transaction_id' => $transactionId,
+            'control_number' => $controlNumber,
+            'po_number' => $poNumber,
+        ], Response::HTTP_CONFLICT);
+    }
+
+    /**
+     * Detect whether a database exception is a duplicate-control-number case.
+     */
+    private function isAlreadyHandledException(QueryException $e): bool
+    {
+        $message = $e->getMessage();
+
+        return str_contains($message, 'Duplicate entry')
+            && str_contains($message, 'edi_transactions')
+            && str_contains($message, 'control_number');
     }
 
     /**

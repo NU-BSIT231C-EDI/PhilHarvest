@@ -151,7 +151,7 @@ class ProcessEdiInboundJob implements ShouldQueue
         
         // Parse date from YYYYMMDD format
         $rawDate = $begSegment[4] ?? date('Ymd');
-        $orderDate = \DateTime::createFromFormat('Ymd', $rawDate)?->format('Y-m-d') ?? date('Y-m-d');
+        $orderDate = $this->safeParseYmdDate($rawDate) ?? date('Y-m-d');
 
         // Extract delivery date from DTM segments
         $deliveryDate = $this->extractDateFromDTM($segments['DTM'] ?? []) ?? $orderDate;
@@ -230,6 +230,27 @@ class ProcessEdiInboundJob implements ShouldQueue
                 }
             }
         }
+        return null;
+    }
+
+    /**
+     * Safely parse a YYYYMMDD date string and return Y-m-d, or null on failure.
+     */
+    private function safeParseYmdDate(?string $dateStr): ?string
+    {
+        if (!$dateStr || strlen($dateStr) !== 8) {
+            return null;
+        }
+
+        try {
+            $parsed = \DateTime::createFromFormat('Ymd', $dateStr);
+            if ($parsed instanceof \DateTime) {
+                return $parsed->format('Y-m-d');
+            }
+        } catch (\Exception $e) {
+            \Log::warning("Failed to parse Ymd date", ['date_str' => $dateStr]);
+        }
+
         return null;
     }
 }
