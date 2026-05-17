@@ -60,10 +60,29 @@ class InboundX12Controller
             // Parse the X12 string
             $dto = $this->edi850Parser->parse($rawEdi);
 
+            $controlNumber = trim($dto->controlNumber);
+
+            // If ISA13 was already processed, return the existing transaction
+            $existing = EdiTransaction::where('control_number', $controlNumber)->first();
+            if ($existing) {
+                Log::info('Duplicate EDI 850 control number received', [
+                    'control_number' => $controlNumber,
+                    'transaction_id' => $existing->id,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Duplicate interchange - already processed',
+                    'transaction_id' => $existing->id,
+                    'control_number' => $existing->control_number,
+                    'po_number' => $dto->poNumber,
+                ], Response::HTTP_ACCEPTED);
+            }
+
             // Create transaction record
             $transaction = EdiTransaction::create([
                 'transaction_type' => '850',
-                'control_number' => $dto->controlNumber,
+                'control_number' => $controlNumber,
                 'partner_id' => $dto->manufacturerId,
                 'raw_payload' => $rawEdi,
                 'parsed_data' => $dto->toArray(),
