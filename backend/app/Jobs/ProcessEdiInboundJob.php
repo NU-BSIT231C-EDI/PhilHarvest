@@ -220,7 +220,10 @@ class ProcessEdiInboundJob implements ShouldQueue
                 $dateStr = $dtm[2] ?? null;
                 if ($dateStr && strlen($dateStr) === 8) {
                     try {
-                        return \DateTime::createFromFormat('Ymd', $dateStr)->format('Y-m-d');
+                        $parsed = \DateTime::createFromFormat('Ymd', $dateStr);
+                        if ($parsed instanceof \DateTime) {
+                            return $parsed->format('Y-m-d');
+                        }
                     } catch (\Exception $e) {
                         \Log::warning("Failed to parse DTM date", ['date_str' => $dateStr]);
                     }
