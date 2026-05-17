@@ -70,8 +70,19 @@ class InboundX12Controller
                 'status' => 'PENDING',
             ]);
 
-            // Dispatch async job for processing
-            ProcessEdiInboundJob::dispatch($transaction->id, $rawEdi);
+            // Dispatch async job for processing.
+            // If the queue backend is unavailable, fall back to sync so inbound
+            // requests still succeed for valid X12 documents.
+            try {
+                ProcessEdiInboundJob::dispatch($transaction->id, $rawEdi);
+            } catch (\Throwable $dispatchError) {
+                Log::warning('Queue dispatch failed for EDI 850, falling back to sync processing', [
+                    'transaction_id' => $transaction->id,
+                    'error' => $dispatchError->getMessage(),
+                ]);
+
+                ProcessEdiInboundJob::dispatchSync($transaction->id, $rawEdi);
+            }
 
             Log::info('EDI 850 received and queued for processing', [
                 'transaction_id' => $transaction->id,
@@ -150,8 +161,16 @@ class InboundX12Controller
                 'status' => 'PENDING',
             ]);
 
-            // Dispatch async job for processing
-            ProcessEdiInboundJob::dispatch($transaction->id, $rawEdi);
+            try {
+                ProcessEdiInboundJob::dispatch($transaction->id, $rawEdi);
+            } catch (\Throwable $dispatchError) {
+                Log::warning('Queue dispatch failed for EDI 990, falling back to sync processing', [
+                    'transaction_id' => $transaction->id,
+                    'error' => $dispatchError->getMessage(),
+                ]);
+
+                ProcessEdiInboundJob::dispatchSync($transaction->id, $rawEdi);
+            }
 
             Log::info('EDI 990 received and queued for processing', [
                 'transaction_id' => $transaction->id,

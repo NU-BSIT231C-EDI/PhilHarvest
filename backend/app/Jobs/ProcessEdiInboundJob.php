@@ -106,7 +106,8 @@ class ProcessEdiInboundJob implements ShouldQueue
     private function parseEdi(string $payload): array
     {
         $segments = [];
-        $lines = explode("\n", $payload);
+        $normalized = str_replace(["\r\n", "\r"], "\n", $payload);
+        $lines = preg_split('/~\s*|\n/', $normalized);
 
         foreach ($lines as $line) {
             $line = trim($line);

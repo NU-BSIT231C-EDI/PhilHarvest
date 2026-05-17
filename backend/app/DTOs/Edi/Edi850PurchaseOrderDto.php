@@ -50,7 +50,10 @@ class Edi850PurchaseOrderDto
             'shipping_date' => $this->shippingDate,
             'delivery_date' => $this->deliveryDate,
             'currency' => $this->currency,
-            'line_items' => $this->lineItems,
+            'line_items' => array_map(
+                fn ($lineItem) => method_exists($lineItem, 'toArray') ? $lineItem->toArray() : $lineItem,
+                $this->lineItems
+            ),
             'ship_to_address' => $this->shipToAddress,
             'bill_to_address' => $this->billToAddress,
             'buyer_company_name' => $this->buyerCompanyName,
