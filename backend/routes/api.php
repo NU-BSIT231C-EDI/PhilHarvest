@@ -33,6 +33,9 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     
     // Get specific purchase order with line items
     Route::get('/orders/{id}', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'showOrder']);
+
+    // List recent EDI transactions for dashboard monitoring
+    Route::get('/transactions', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'listTransactions']);
     
     // ========================================================================
     // INBOUND ENDPOINTS - Receive raw X12 EDI strings

@@ -38,6 +38,45 @@ class OutboundController
     }
 
     /**
+     * List recent EDI transactions for dashboard monitoring
+     */
+    public function listTransactions()
+    {
+        $transactions = EdiTransaction::query()
+            ->latest()
+            ->limit(25)
+            ->get([
+                'id',
+                'transaction_type',
+                'control_number',
+                'partner_id',
+                'status',
+                'raw_payload',
+                'generated_x12_payload',
+                'parsed_data',
+                'created_at',
+            ])
+            ->map(function (EdiTransaction $transaction) {
+                $payload = $transaction->raw_payload ?: $transaction->generated_x12_payload;
+                $direction = in_array($transaction->transaction_type, ['850', '990'], true) ? 'inbound' : 'outbound';
+
+                return [
+                    'id' => $transaction->id,
+                    'transaction_type' => $transaction->transaction_type,
+                    'control_number' => $transaction->control_number,
+                    'partner_id' => $transaction->partner_id,
+                    'status' => $transaction->status,
+                    'direction' => $direction,
+                    'payload_preview' => $payload ? mb_substr($payload, 0, 500) : null,
+                    'parsed_data' => $transaction->parsed_data,
+                    'created_at' => optional($transaction->created_at)->toIso8601String(),
+                ];
+            });
+
+        return response()->json($transactions);
+    }
+
+    /**
      * Download EDI transaction as CSV
      * GET /api/edi/transactions/{id}/csv
      * 

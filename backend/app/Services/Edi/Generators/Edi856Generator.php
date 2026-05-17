@@ -103,13 +103,15 @@ class Edi856Generator
      */
     private function buildISA(): string
     {
-        $config = Config::get('edi-partners.global');
-        $senderQual = $config['sender_qualifier'] ?? '01';
-        $senderId = str_pad($config['sender_id'] ?? 'PHILHARVEST', 15, ' ');
-        $receiverQual = '01';
-        $receiverId = str_pad('MANUFACTURER', 15, ' ');
+        $partnerConfig = Config::get('edi-partners.manufacturer', []);
+        $x12Config = $partnerConfig['x12'] ?? [];
+        $senderQual = $x12Config['sender_qualifier'] ?? Config::get('edi-partners.global.sender_qualifier', 'ZZ');
+        $senderId = str_pad($x12Config['sender_id'] ?? Config::get('edi-partners.global.sender_id', 'PHILHARVEST'), 15, ' ');
+        $receiverQual = $x12Config['receiver_qualifier'] ?? 'ZZ';
+        $receiverId = str_pad($x12Config['receiver_id'] ?? ($partnerConfig['code'] ?? 'SERMACROPS'), 15, ' ');
         $date = date('ymd');
         $time = date('Hi');
+        $version = $this->formatIsaVersion($x12Config['version'] ?? Config::get('edi-partners.global.x12_version', '005010'));
 
         return implode($this->fieldSeparator, [
             'ISA',
@@ -124,7 +126,7 @@ class Edi856Generator
             $date,
             $time,
             '^',
-            '00401',
+            $version,
             $this->controlNumber,
             '0',
             'P',
@@ -137,9 +139,13 @@ class Edi856Generator
      */
     private function buildGS(): string
     {
+        $partnerConfig = Config::get('edi-partners.manufacturer', []);
+        $x12Config = $partnerConfig['x12'] ?? [];
+        $senderId = $x12Config['sender_id'] ?? Config::get('edi-partners.global.sender_id', 'PHILHARVEST');
+        $receiverId = $x12Config['receiver_id'] ?? ($partnerConfig['code'] ?? 'SERMACROPS');
         $date = date('Ymd');
         $time = date('His');
-        return "GS{$this->fieldSeparator}SH{$this->fieldSeparator}PHILHARVEST{$this->fieldSeparator}MANUFACTURER{$this->fieldSeparator}{$date}{$this->fieldSeparator}{$time}{$this->fieldSeparator}1{$this->fieldSeparator}X{$this->fieldSeparator}004010";
+        return "GS{$this->fieldSeparator}SH{$this->fieldSeparator}{$senderId}{$this->fieldSeparator}{$receiverId}{$this->fieldSeparator}{$date}{$this->fieldSeparator}{$time}{$this->fieldSeparator}1{$this->fieldSeparator}X{$this->fieldSeparator}005010";
     }
 
     /**
@@ -165,7 +171,8 @@ class Edi856Generator
      */
     private function buildN1Shipper(): string
     {
-        return "N1{$this->fieldSeparator}SH{$this->fieldSeparator}PHILHARVEST";
+        $senderId = Config::get('edi-partners.manufacturer.x12.sender_id', Config::get('edi-partners.global.sender_id', 'PHILHARVEST'));
+        return "N1{$this->fieldSeparator}SH{$this->fieldSeparator}{$senderId}";
     }
 
     /**
@@ -244,5 +251,11 @@ class Edi856Generator
         }
 
         return date('Ymd', $timestamp);
+    }
+
+    private function formatIsaVersion(string $version): string
+    {
+        $normalized = preg_replace('/[^0-9]/', '', $version);
+        return substr(str_pad($normalized ?: '005010', 5, '0', STR_PAD_LEFT), 0, 5);
     }
 }

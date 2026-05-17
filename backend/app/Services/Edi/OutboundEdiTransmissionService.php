@@ -31,10 +31,11 @@ class OutboundEdiTransmissionService
      */
     public function send855(string $x12Payload): EdiTransaction
     {
+        $partnerCode = Config::get('edi-partners.manufacturer.code', 'SERMACROPS');
         $transaction = EdiTransaction::create([
             'transaction_type' => '855',
             'control_number' => $this->extractControlNumber($x12Payload),
-            'partner_id' => 'MANUFACTURER',
+            'partner_id' => $partnerCode,
             'raw_payload' => $x12Payload,
             'generated_x12_payload' => $x12Payload,
             'status' => 'PENDING',
@@ -65,10 +66,11 @@ class OutboundEdiTransmissionService
      */
     public function send856(string $x12Payload): EdiTransaction
     {
+        $partnerCode = Config::get('edi-partners.manufacturer.code', 'SERMACROPS');
         $transaction = EdiTransaction::create([
             'transaction_type' => '856',
             'control_number' => $this->extractControlNumber($x12Payload),
-            'partner_id' => 'MANUFACTURER',
+            'partner_id' => $partnerCode,
             'raw_payload' => $x12Payload,
             'generated_x12_payload' => $x12Payload,
             'status' => 'PENDING',
@@ -82,10 +84,11 @@ class OutboundEdiTransmissionService
      */
     public function send810(string $x12Payload): EdiTransaction
     {
+        $partnerCode = Config::get('edi-partners.manufacturer.code', 'SERMACROPS');
         $transaction = EdiTransaction::create([
             'transaction_type' => '810',
             'control_number' => $this->extractControlNumber($x12Payload),
-            'partner_id' => 'MANUFACTURER',
+            'partner_id' => $partnerCode,
             'raw_payload' => $x12Payload,
             'generated_x12_payload' => $x12Payload,
             'status' => 'PENDING',
@@ -120,7 +123,8 @@ class OutboundEdiTransmissionService
                     $endpoint,
                     $transaction->raw_payload,
                     $partnerConfig['authentication'],
-                    $partnerConfig['timeout'] ?? 30
+                    $partnerConfig['timeout'] ?? 30,
+                    $partnerConfig['content_type'] ?? 'application/x-edi'
                 );
 
                 $transaction->update([
@@ -172,18 +176,21 @@ class OutboundEdiTransmissionService
     /**
      * Send HTTP request with authentication
      */
-    private function sendRequest(string $endpoint, string $payload, array $auth, int $timeout)
+    private function sendRequest(string $endpoint, string $payload, array $auth, int $timeout, string $contentType)
     {
         $options = [
             'timeout' => $timeout,
             'headers' => [
-                'Content-Type' => 'application/x-edi',
+                'Content-Type' => $contentType,
             ],
             'body' => $payload,
         ];
 
         // Apply authentication
         switch ($auth['type'] ?? 'api_key') {
+            case 'none':
+                break;
+
             case 'basic':
                 $options['auth'] = [
                     $auth['username'] ?? '',
@@ -256,7 +263,16 @@ class OutboundEdiTransmissionService
         return $this->transmit(
             $transaction,
             $transaction->transaction_type,
-            strtolower($transaction->partner_id)
+            $this->resolvePartnerConfigKey($transaction)
         );
+    }
+
+    private function resolvePartnerConfigKey(EdiTransaction $transaction): string
+    {
+        return match ($transaction->transaction_type) {
+            '204', '990' => 'logistics',
+            '855', '856', '810', '850' => 'manufacturer',
+            default => strtolower($transaction->partner_id),
+        };
     }
 }
