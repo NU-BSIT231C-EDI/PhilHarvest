@@ -106,10 +106,10 @@ class X12ToCSVConverter implements EdiConverterContract
         $po1Segments = $segments['PO1'] ?? [];
         foreach ($po1Segments as $index => $po1) {
             $lineNumber = $po1[1] ?? ($index + 1);
-            $itemNumber = $po1[2] ?? '';
-            $quantity = $po1[3] ?? '';
-            $uom = $po1[4] ?? '';
-            $unitPrice = $po1[5] ?? '';
+            $itemNumber = $po1[7] ?? '';
+            $quantity = $po1[2] ?? '';
+            $uom = $po1[3] ?? '';
+            $unitPrice = $po1[4] ?? '';
 
             // Find description from PID segment
             $pidSegment = $segments['PID'][$index] ?? [];
@@ -325,6 +325,9 @@ class X12ToCSVConverter implements EdiConverterContract
         foreach ($lines as $line) {
             $line = trim($line);
             if (empty($line)) continue;
+
+            // Remove segment terminator (~)
+            $line = rtrim($line, '~');
 
             $parts = explode('*', $line);
             $segmentType = $parts[0] ?? null;
