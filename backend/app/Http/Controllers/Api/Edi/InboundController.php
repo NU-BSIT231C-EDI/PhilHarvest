@@ -39,11 +39,46 @@ class InboundController
             if ($format === 'CSV') {
                 return $this->receiveCSV($rawPayload, '850', $partnerId, $request);
             } else {
-                return $this->receiveX12($rawPayload, '850', $partnerId, $request);
+                return $this->receiveX12($rawPayload, '850', $partnerId);
             }
 
         } catch (\Exception $e) {
             \Log::error('EDI 850 Ingestion Error: ' . $e->getMessage());
+
+            return response()->json([
+                'error' => 'Failed to process EDI',
+                'message' => $e->getMessage(),
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Receive 855 (Ship Notice) - supports both X12 and CSV formats
+     */
+    public function receive855(Request $request)
+    {
+        try {
+            // Get raw payload
+            $rawPayload = $request->getContent();
+
+            if (empty($rawPayload)) {
+                return response()->json([
+                    'error' => 'Empty payload'
+                ], Response::HTTP_BAD_REQUEST);
+            }
+
+            // Detect format (X12 starts with ISA*, CSV starts with headers or data)
+            $format = $this->detectFormat($rawPayload);
+            $partnerId = $request->attributes->get('edi_partner_id', 'UNKNOWN');
+
+            if ($format === 'CSV') {
+                return $this->receiveCSV($rawPayload, '855', $partnerId, $request);
+            } else {
+                return $this->receiveX12($rawPayload, '855', $partnerId);
+            }
+
+        } catch (\Exception $e) {
+            \Log::error('EDI 855 Ingestion Error: ' . $e->getMessage());
 
             return response()->json([
                 'error' => 'Failed to process EDI',
@@ -106,7 +141,7 @@ class InboundController
     /**
      * Process X12 format inbound
      */
-    private function receiveX12(string $rawPayload, string $transactionType, string $partnerId, Request $request)
+    private function receiveX12(string $rawPayload, string $transactionType, string $partnerId)
     {
         // Extract control number (ISA13) for idempotency
         $controlNumber = $this->extractControlNumber($rawPayload);

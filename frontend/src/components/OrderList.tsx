@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Fragment } from "react";
+import "./OrderList.css"
 
 interface OrderItem {
   id: number;
@@ -68,10 +69,10 @@ export default function OrderList({ refreshTrigger = 0 }: OrderListProps) {
         })),
       }));
       setOrders(normalizedOrders);
+      setError(null);
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to fetch orders";
-      setError(errorMessage);
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      setError(`Failed to fetch orders: ${errorMessage}`);
       console.error("Error fetching orders:", err);
 
       // Use mock data as fallback
@@ -82,6 +83,7 @@ export default function OrderList({ refreshTrigger = 0 }: OrderListProps) {
           partner_id: "TESTPARTNER",
           status: "PENDING",
           total_amount: 5000,
+          order_date: new Date().toISOString().split('T')[0],
           items: [
             {
               id: 1,
@@ -111,17 +113,17 @@ export default function OrderList({ refreshTrigger = 0 }: OrderListProps) {
       <div className="list-header">
         <h2>Purchase Orders</h2>
         <button onClick={fetchOrders} className="refresh-btn">
-          Refresh
+          🔄 Refresh
         </button>
       </div>
 
       {orders.length === 0 ? (
-        <p className="no-data">No orders found</p>
+        <p className="no-data">No orders found. Submit a test EDI 850 to get started.</p>
       ) : (
         <table className="orders-table">
           <thead>
             <tr>
-              <th></th>
+              <th style={{ width: '40px' }}></th>
               <th>PO Number</th>
               <th>Partner</th>
               <th>Status</th>
@@ -131,9 +133,9 @@ export default function OrderList({ refreshTrigger = 0 }: OrderListProps) {
           </thead>
           <tbody>
             {orders.map((order) => (
-              <tbody key={order.id}>
+              <Fragment key={order.id}>
                 <tr className={`status-${order.status.toLowerCase()}`}>
-                  <td style={{ textAlign: 'center', cursor: 'pointer' }} onClick={() => setExpandedId(expandedId === order.id ? null : order.id)}>
+                  <td className="expand-button" onClick={() => setExpandedId(expandedId === order.id ? null : order.id)}>
                     {expandedId === order.id ? '▼' : '▶'}
                   </td>
                   <td className="po-number">{order.po_number}</td>
@@ -145,50 +147,42 @@ export default function OrderList({ refreshTrigger = 0 }: OrderListProps) {
                   </td>
                 </tr>
                 {expandedId === order.id && (
-                  <>
-                    {order.items && order.items.length > 0 ? (
-                      <>
-                        <tr style={{ backgroundColor: '#f9f9f9' }}>
-                          <td colSpan={6} style={{ padding: '0' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                              <thead>
-                                <tr style={{ backgroundColor: '#e8e8e8' }}>
-                                  <th style={{ padding: '8px', textAlign: 'left' }}>Line</th>
-                                  <th style={{ padding: '8px', textAlign: 'left' }}>Product Code</th>
-                                  <th style={{ padding: '8px', textAlign: 'left' }}>Product Name</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Qty</th>
-                                  <th style={{ padding: '8px', textAlign: 'left' }}>Unit</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Unit Price</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Line Total</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {order.items.map((item) => (
-                                  <tr key={item.id} style={{ borderBottom: '1px solid #ddd' }}>
-                                    <td style={{ padding: '8px' }}>{item.line_number}</td>
-                                    <td style={{ padding: '8px' }}>{item.product_code}</td>
-                                    <td style={{ padding: '8px' }}>{item.product_name}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>{item.quantity?.toFixed(2)}</td>
-                                    <td style={{ padding: '8px' }}>{item.unit_of_measure}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>₱{item.unit_price?.toFixed(2)}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>₱{item.line_total?.toFixed(2)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-                      </>
-                    ) : (
-                      <tr style={{ backgroundColor: '#f9f9f9' }}>
-                        <td colSpan={6} style={{ padding: '8px', textAlign: 'center', fontStyle: 'italic', color: '#999' }}>
-                          No line items
-                        </td>
-                      </tr>
-                    )}
-                  </>
+                  <tr className="order-details-row">
+                    <td colSpan={6} style={{ padding: '0' }}>
+                      {order.items && order.items.length > 0 ? (
+                        <table className="order-details-table">
+                          <thead className="order-details-header">
+                            <tr>
+                              <th>Line</th>
+                              <th>Product Code</th>
+                              <th>Product Name</th>
+                              <th>Qty</th>
+                              <th>Unit</th>
+                              <th>Unit Price</th>
+                              <th>Line Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="order-details-body">
+                            {order.items.map((item) => (
+                              <tr key={item.id}>
+                                <td>{item.line_number}</td>
+                                <td>{item.product_code}</td>
+                                <td>{item.product_name}</td>
+                                <td className="line-item-qty">{item.quantity?.toFixed(2)}</td>
+                                <td>{item.unit_of_measure}</td>
+                                <td className="line-item-price">₱{item.unit_price?.toFixed(2)}</td>
+                                <td className="line-item-total">₱{item.line_total?.toFixed(2)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div className="no-items-message">No line items</div>
+                      )}
+                    </td>
+                  </tr>
                 )}
-              </tbody>
+              </Fragment>
             ))}
           </tbody>
         </table>

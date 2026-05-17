@@ -18,20 +18,60 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-// EDI routes with authentication and rate limiting
+// ============================================================================
+// NATIVE X12 EDI API ROUTES (Refactored - No CSV)
+// ============================================================================
+
 Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(function () {
-    // X12 and CSV inbound endpoints
-    Route::post('/850/receive', [\App\Http\Controllers\Api\Edi\InboundController::class, 'receive850']);
-    Route::post('/csv/upload', [\App\Http\Controllers\Api\Edi\InboundController::class, 'uploadCSV']);
     
-    // Outbound endpoints
+    // ========================================================================
+    // ORDER MANAGEMENT ENDPOINTS - List and view purchase orders
+    // ========================================================================
+    
+    // List all purchase orders (paginated)
     Route::get('/orders', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'listOrders']);
-    Route::get('/orders/{id}', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'showOrder']);
-    Route::get('/orders/{id}/export/csv', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'exportOrderAsCSV']);
     
-    // Transaction management endpoints
-    Route::get('/transactions/{id}', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'getTransactionDetails']);
-    Route::get('/transactions/{id}/csv', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'downloadCSV'])->name('edi.download-csv');
+    // Get specific purchase order with line items
+    Route::get('/orders/{id}', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'showOrder']);
+    
+    // ========================================================================
+    // INBOUND ENDPOINTS - Receive raw X12 EDI strings
+    // ========================================================================
+    
+    // EDI 850: Purchase Order (from Manufacturer)
+    Route::post('/850/receive', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive850']);
+    
+    // EDI 990: Response to Load Tender (from Logistics Partner)
+    Route::post('/990/receive', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive990']);
+    
+    // ========================================================================
+    // OUTBOUND ENDPOINTS - Generate and transmit raw X12 EDI strings
+    // ========================================================================
+    
+    // EDI 855: Purchase Order Acknowledgment (to Manufacturer)
+    Route::post('/855/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send855']);
+    
+    // EDI 204: Motor Carrier Load Tender (to Logistics Partner)
+    Route::post('/204/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send204']);
+    
+    // EDI 856: Advance Ship Notice / ASN (to Manufacturer)
+    Route::post('/856/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send856']);
+    
+    // EDI 810: Invoice (to Manufacturer)
+    Route::post('/810/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send810']);
+    
+    // ========================================================================
+    // TRANSACTION MANAGEMENT ENDPOINTS
+    // ========================================================================
+    
+    // Get inbound transaction status
+    Route::get('/transactions/inbound/{id}', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'getTransactionStatus']);
+    
+    // Get outbound transmission status by control number
+    Route::get('/transmissions/{controlNumber}', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'getTransmissionStatus']);
+    
+    // Retry failed transmission
+    Route::post('/transmissions/{transactionId}/retry', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'retryTransmission']);
 });
 
 // Webhook routes (coming soon)

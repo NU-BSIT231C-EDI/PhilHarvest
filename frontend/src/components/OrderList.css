@@ -1,0 +1,111 @@
+/* OrderList Component Styles */
+
+.order-details-row {
+  background: var(--bg-light);
+}
+
+.order-details-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-light);
+}
+
+.order-details-header {
+  background: #e5e7eb;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.order-details-header th {
+  padding: 0.875rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: left;
+  border-right: 1px solid var(--border-color);
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.order-details-header th:last-child {
+  border-right: none;
+}
+
+.order-details-body tr:not(:last-child) {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.order-details-body td {
+  padding: 0.875rem 1rem;
+  border-right: 1px solid var(--border-color);
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.order-details-body td:last-child {
+  border-right: none;
+}
+
+.order-details-body tr:hover {
+  background: #f3f4f6;
+}
+
+.expand-button {
+  text-align: center;
+  cursor: pointer;
+  width: 40px;
+  padding: 1rem 0.75rem;
+  user-select: none;
+  transition: background 0.2s ease;
+  font-weight: 600;
+  color: var(--secondary);
+}
+
+.expand-button:hover {
+  background: var(--bg-light);
+}
+
+.no-items-message {
+  padding: 1.5rem;
+  text-align: center;
+  font-style: italic;
+  color: var(--text-secondary);
+  background: var(--bg-light);
+}
+
+.line-item-qty,
+.line-item-price {
+  text-align: right;
+  font-weight: 500;
+}
+
+.line-item-total {
+  text-align: right;
+  font-weight: 700;
+  color: var(--success);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .order-details-header th,
+  .order-details-body td {
+    padding: 0.625rem;
+    font-size: 0.85rem;
+  }
+
+  .order-details-header th {
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .order-details-header th:nth-child(n+3),
+  .order-details-body td:nth-child(n+3) {
+    display: none;
+  }
+
+  .order-details-header th,
+  .order-details-body td {
+    padding: 0.5rem;
+    font-size: 0.75rem;
+  }
+}
