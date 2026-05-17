@@ -77,24 +77,37 @@ class X12ToCSVConverter implements EdiConverterContract
     {
         $rows = [];
         $headers = [
-            'Transaction_Type', 'Control_Number', 'PO_Number', 'Order_Date',
-            'Delivery_Date', 'Partner_Name', 'Partner_Address', 'Partner_City',
-            'Partner_State', 'Partner_Zip', 'Line_Number', 'Item_Number',
-            'Quantity', 'Unit_Of_Measure', 'Unit_Price', 'Description'
+            'Transaction_Type',
+            'Control_Number',
+            'PO_Number',
+            'Order_Date',
+            'Delivery_Date',
+            'Partner_Name',
+            'Partner_Address',
+            'Partner_City',
+            'Partner_State',
+            'Partner_Zip',
+            'Line_Number',
+            'Item_Number',
+            'Quantity',
+            'Unit_Of_Measure',
+            'Unit_Price',
+            'Description'
         ];
-        
+
         $rows[] = $headers;
 
         // Extract envelope info
         $begSegment = $segments['BEG'][0] ?? [];
         $poNumber = $begSegment[3] ?? 'UNKNOWN';
         $orderDate = $begSegment[4] ?? '';
-        
+
         $dtmSegment = $segments['DTM'][0] ?? [];
         $deliveryDate = $this->extractDateFromDTM($segments['DTM'] ?? []);
 
+        // Extract partner info from N1 segment, or fallback to ISA/GS sender info
         $n1Segments = $segments['N1'] ?? [];
-        $partnerName = $n1Segments[0][2] ?? '';
+        $partnerName = $n1Segments[0][2] ?? $this->extractSenderFromISA($segments);
         $n3Segment = $segments['N3'][0] ?? [];
         $partnerAddress = $n3Segment[1] ?? '';
         $n4Segment = $segments['N4'][0] ?? [];
@@ -145,9 +158,19 @@ class X12ToCSVConverter implements EdiConverterContract
     {
         $rows = [];
         $headers = [
-            'Transaction_Type', 'Control_Number', 'PO_Number', 'Confirmation_Date',
-            'Confirmation_Status', 'Partner_Name', 'Line_Number', 'Item_Number',
-            'Accepted_Quantity', 'Unit_Of_Measure', 'Unit_Price', 'Status_Code', 'Notes'
+            'Transaction_Type',
+            'Control_Number',
+            'PO_Number',
+            'Confirmation_Date',
+            'Confirmation_Status',
+            'Partner_Name',
+            'Line_Number',
+            'Item_Number',
+            'Accepted_Quantity',
+            'Unit_Of_Measure',
+            'Unit_Price',
+            'Status_Code',
+            'Notes'
         ];
 
         $rows[] = $headers;
@@ -158,7 +181,7 @@ class X12ToCSVConverter implements EdiConverterContract
         $confirmationStatus = $begSegment[1] ?? '';
 
         $n1Segment = $segments['N1'][0] ?? [];
-        $partnerName = $n1Segment[2] ?? '';
+        $partnerName = $n1Segment[2] ?? $this->extractSenderFromISA($segments);
 
         $po1Segments = $segments['PO1'] ?? [];
         foreach ($po1Segments as $index => $po1) {
@@ -189,10 +212,21 @@ class X12ToCSVConverter implements EdiConverterContract
     {
         $rows = [];
         $headers = [
-            'Transaction_Type', 'Control_Number', 'Shipment_Number', 'Ship_Date',
-            'Delivery_Date', 'Carrier_Code', 'Carrier_Name', 'Pro_Number',
-            'Line_Number', 'Item_Number', 'Shipped_Quantity', 'Unit_Of_Measure',
-            'Lot_Number', 'Serial_Number', 'Container_Number'
+            'Transaction_Type',
+            'Control_Number',
+            'Shipment_Number',
+            'Ship_Date',
+            'Delivery_Date',
+            'Carrier_Code',
+            'Carrier_Name',
+            'Pro_Number',
+            'Line_Number',
+            'Item_Number',
+            'Shipped_Quantity',
+            'Unit_Of_Measure',
+            'Lot_Number',
+            'Serial_Number',
+            'Container_Number'
         ];
 
         $rows[] = $headers;
@@ -206,10 +240,12 @@ class X12ToCSVConverter implements EdiConverterContract
         $hlSegments = $segments['HL'] ?? [];
         foreach ($hlSegments as $hlSegment) {
             // Skip hierarchy levels that aren't line items
-            if (($hlSegment[3] ?? null) !== '0') continue;
+            if (($hlSegment[3] ?? null) !== '0')
+                continue;
 
             $po1Data = $this->findRelatedPO1($hlSegment[1] ?? '', $segments);
-            if (!$po1Data) continue;
+            if (!$po1Data)
+                continue;
 
             $rows[] = [
                 '856',
@@ -240,10 +276,22 @@ class X12ToCSVConverter implements EdiConverterContract
     {
         $rows = [];
         $headers = [
-            'Transaction_Type', 'Control_Number', 'Invoice_Number', 'Invoice_Date',
-            'PO_Number', 'Partner_Name', 'Line_Number', 'Item_Number',
-            'Description', 'Quantity', 'Unit_Of_Measure', 'Unit_Price',
-            'Line_Amount', 'Tax_Amount', 'Invoice_Subtotal', 'Invoice_Total',
+            'Transaction_Type',
+            'Control_Number',
+            'Invoice_Number',
+            'Invoice_Date',
+            'PO_Number',
+            'Partner_Name',
+            'Line_Number',
+            'Item_Number',
+            'Description',
+            'Quantity',
+            'Unit_Of_Measure',
+            'Unit_Price',
+            'Line_Amount',
+            'Tax_Amount',
+            'Invoice_Subtotal',
+            'Invoice_Total',
             'Invoice_Status'
         ];
 
@@ -255,13 +303,13 @@ class X12ToCSVConverter implements EdiConverterContract
         $poNumber = $bigSegment[3] ?? '';
 
         $n1Segment = $segments['N1'][0] ?? [];
-        $partnerName = $n1Segment[2] ?? '';
+        $partnerName = $n1Segment[2] ?? $this->extractSenderFromISA($segments);
 
         $it1Segments = $segments['IT1'] ?? [];
         $subtotal = 0;
         foreach ($it1Segments as $index => $it1) {
-            $quantity = (float)($it1[2] ?? 0);
-            $unitPrice = (float)($it1[4] ?? 0);
+            $quantity = (float) ($it1[2] ?? 0);
+            $unitPrice = (float) ($it1[4] ?? 0);
             $lineAmount = $quantity * $unitPrice;
             $subtotal += $lineAmount;
 
@@ -289,8 +337,23 @@ class X12ToCSVConverter implements EdiConverterContract
         // Add summary row with totals
         $totalAmount = $this->extractInvoiceTotal($segments, $subtotal);
         $rows[] = [
-            '810', '', $invoiceNumber, $invoiceDate, $poNumber, $partnerName,
-            'TOTAL', '', '', '', '', '', '', '', $subtotal, $totalAmount, 'INVOICE'
+            '810',
+            '',
+            $invoiceNumber,
+            $invoiceDate,
+            $poNumber,
+            $partnerName,
+            'TOTAL',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            $subtotal,
+            $totalAmount,
+            'INVOICE'
         ];
 
         return $this->arrayToCSV($rows);
@@ -302,7 +365,7 @@ class X12ToCSVConverter implements EdiConverterContract
     private function convertGeneric(array $segments): string
     {
         $rows = [];
-        
+
         foreach ($segments as $segmentType => $segmentData) {
             foreach ($segmentData as $index => $segment) {
                 $row = [$segmentType];
@@ -320,13 +383,22 @@ class X12ToCSVConverter implements EdiConverterContract
     private function parseX12Segments(string $payload): array
     {
         $segments = [];
-        $lines = explode("\n", $payload);
+
+        // Handle both single-line (~ delimited) and multi-line formats
+        if (strpos($payload, "\n") === false) {
+            // Single-line format: split by ~
+            $lines = explode('~', $payload);
+        } else {
+            // Multi-line format: split by newline
+            $lines = explode("\n", $payload);
+        }
 
         foreach ($lines as $line) {
             $line = trim($line);
-            if (empty($line)) continue;
+            if (empty($line))
+                continue;
 
-            // Remove segment terminator (~)
+            // Remove segment terminator (~) if present
             $line = rtrim($line, '~');
 
             $parts = explode('*', $line);
@@ -362,7 +434,7 @@ class X12ToCSVConverter implements EdiConverterContract
     {
         $escaped = [];
         foreach ($row as $field) {
-            $field = (string)$field;
+            $field = (string) $field;
             // Quote fields containing comma, quote, or newline
             if (strpos($field, ',') !== false || strpos($field, '"') !== false || strpos($field, "\n") !== false) {
                 $field = '"' . str_replace('"', '""', $field) . '"';
@@ -441,6 +513,32 @@ class X12ToCSVConverter implements EdiConverterContract
     }
 
     /**
+     * Helper: Extract sender identity from ISA/GS segments when N1 is missing
+     */
+    private function extractSenderFromISA(array $segments): string
+    {
+        // Try GS segment first (sender code)
+        $gsSegment = $segments['GS'][0] ?? null;
+        if ($gsSegment && isset($gsSegment[2])) {
+            $sender = trim($gsSegment[2]);
+            if (!empty($sender)) {
+                return $sender;
+            }
+        }
+
+        // Fall back to ISA segment (sender ID)
+        $isaSegment = $segments['ISA'][0] ?? null;
+        if ($isaSegment && isset($isaSegment[6])) {
+            $sender = trim($isaSegment[6]);
+            if (!empty($sender)) {
+                return $sender;
+            }
+        }
+
+        return 'UNKNOWN';
+    }
+
+    /**
      * Helper: Extract total invoice amount
      */
     private function extractInvoiceTotal(array $segments, float $subtotal): float
@@ -448,7 +546,7 @@ class X12ToCSVConverter implements EdiConverterContract
         $amtSegments = $segments['AMT'] ?? [];
         foreach ($amtSegments as $amt) {
             if (($amt[1] ?? null) === 'TT') { // Total amount due
-                return (float)($amt[2] ?? $subtotal);
+                return (float) ($amt[2] ?? $subtotal);
             }
         }
         return $subtotal;
