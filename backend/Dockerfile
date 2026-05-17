@@ -16,6 +16,7 @@ RUN composer install \
     --no-interaction \
     --no-progress \
     --prefer-dist \
+    --no-scripts \
     --optimize-autoloader
 
 FROM php:8.2-fpm
@@ -32,8 +33,13 @@ RUN docker-php-ext-install pdo pdo_mysql
 RUN pecl install redis \
     && docker-php-ext-enable redis
 
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
 COPY --from=vendor /app/vendor /app/vendor
 COPY --chown=www-data:www-data . .
+
+RUN composer dump-autoload --no-dev --optimize --no-interaction \
+    && php artisan package:discover --ansi
 
 RUN mkdir -p storage/logs storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
