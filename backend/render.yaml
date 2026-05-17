@@ -36,6 +36,43 @@ services:
       - key: EDI_AUTH_TOKEN
         value: test_token_here
 
+  - type: worker
+    name: philharvest-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: singapore
+    plan: free
+    envVars:
+      - key: APP_NAME
+        value: PhilHarvest
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: APP_KEY
+        sync: false
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        value: philharvest-mysql
+      - key: DB_PORT
+        value: 3306
+      - key: DB_DATABASE
+        value: philharvest
+      - key: DB_USERNAME
+        value: root
+      - key: DB_PASSWORD
+        sync: false
+      - key: REDIS_HOST
+        value: philharvest-redis
+      - key: REDIS_PORT
+        value: 6379
+      - key: QUEUE_CONNECTION
+        value: redis
+      - key: EDI_AUTH_TOKEN
+        value: test_token_here
+    startCommand: php artisan queue:work --sleep=3 --tries=3 --timeout=90
+
   - type: mysql
     name: philharvest-mysql
     version: "8.0"
