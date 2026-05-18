@@ -12,6 +12,7 @@ Migrate from Redis queue worker to AWS SQS (Simple Queue Service) + Lambda for c
 1. Go to **IAM → Users → Create User**
    - Name: `philharvest-lambda-user`
    - Access type: Programmatic access
+   - **Use case:** "Application running outside AWS" (Render is external infrastructure)
    
 2. Attach policies:
    - `AmazonSQSFullAccess` (for queue access)
@@ -45,10 +46,10 @@ Migrate from Redis queue worker to AWS SQS (Simple Queue Service) + Lambda for c
        {
          "Effect": "Allow",
          "Principal": {
-           "AWS": "arn:aws:iam::YOUR_ACCOUNT_ID:user/philharvest-lambda-user"
+           "AWS": "arn:aws:iam::377114445186:user/philharvest-lambda-user"
          },
          "Action": "sqs:*",
-         "Resource": "arn:aws:sqs:ap-southeast-1:YOUR_ACCOUNT_ID:philharvest-queue"
+         "Resource": "arn:aws:sqs:ap-southeast-1:377114445186:philharvest-queue"
        }
      ]
    }
@@ -90,9 +91,35 @@ This allows Laravel to authenticate with AWS and send messages to SQS.
 ### 5a. Create function
 1. Go to **Lambda → Create Function**
    - Name: `philharvest-queue-worker`
-   - Runtime: **Node.js 18.x** (lightweight, fast)
+   - Runtime: **Node.js 22.x** (latest supported, lightweight, fast)
    - Architecture: **arm64** (cheaper)
    - Execution role: Create new role with basic Lambda permissions
+
+2. Open the Lambda execution role in **IAM → Roles** and attach SQS permissions.
+    The trigger creation error means the role cannot call `ReceiveMessage` yet.
+    Add this policy to the role if it is not already present:
+
+    ```json
+    {
+       "Version": "2012-10-17",
+       "Statement": [
+          {
+             "Effect": "Allow",
+             "Action": [
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:GetQueueUrl",
+                "sqs:ChangeMessageVisibility"
+             ],
+             "Resource": "arn:aws:sqs:ap-southeast-1:YOUR_ACCOUNT_ID:philharvest-queue"
+          }
+       ]
+    }
+    ```
+
+    If you want to move quickly for testing, you can temporarily attach the AWS-managed
+    `AmazonSQSFullAccess` policy, then replace it later with the least-privilege policy above.
 
 ### 5b. Set environment variables in Lambda
 In the Lambda console, **Configuration → Environment variables**, add:
@@ -113,6 +140,10 @@ LARAVEL_APP_URL=https://your-render-app.onrender.com (your Render web URL)
    - Queue: `philharvest-queue`
    - Batch size: `1` (process one message at a time for clarity; increase later)
    - Batch window: `0`
+
+2. If trigger creation still fails, verify these two things:
+   - The Lambda execution role has the SQS permissions above.
+   - The queue ARN in the policy matches your actual AWS account ID and queue name.
 
 ---
 

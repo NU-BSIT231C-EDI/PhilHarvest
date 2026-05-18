@@ -10,6 +10,7 @@ Complete these steps in order to migrate from Render worker to AWS Lambda + SQS.
 - [ ] AWS Console → IAM → Users → Create User
   - Name: `philharvest-lambda-user`
   - Access type: Programmatic access
+  - **Use case:** Select "Application running outside AWS" (Render is external)
 - [ ] Attach policies:
   - [ ] `AmazonSQSFullAccess`
   - [ ] `AWSLambdaFullAccess`
@@ -54,7 +55,7 @@ Complete these steps in order to migrate from Render worker to AWS Lambda + SQS.
 ### [ ] 1.3 Create Lambda Function
 - [ ] AWS Console → Lambda → Create Function
   - Name: `philharvest-queue-worker`
-  - Runtime: **Node.js 18.x**
+  - Runtime: **Node.js 22.x** (latest supported)
   - Architecture: **arm64**
   - Execution role: Create new with basic permissions
 - [ ] Set environment variables:
@@ -124,11 +125,36 @@ ls -lh lambda.zip
 
 ### [ ] 3.2 Deploy Lambda Handler
 - [ ] AWS Console → Lambda → `philharvest-queue-worker`
+- [ ] Configuration → Runtime: Verify **Node.js 22.x** is selected
 - [ ] Code source → **Upload from .zip file**
 - [ ] Select `lambda.zip`
 - [ ] Set Handler: `lambda.handler`
 - [ ] Increase timeout: Configuration → 30 seconds (default is 3 sec)
 - [ ] Verify handler uploaded successfully
+
+### [ ] 3.2.1 Grant Lambda SQS permissions
+- [ ] Open the Lambda execution role in IAM → Roles
+- [ ] Attach permissions so Lambda can poll the queue
+- [ ] Minimal policy required:
+  ```json
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl",
+          "sqs:ChangeMessageVisibility"
+        ],
+        "Resource": "arn:aws:sqs:ap-southeast-1:YOUR_ACCOUNT_ID:philharvest-queue"
+      }
+    ]
+  }
+  ```
+- [ ] Or temporarily attach `AmazonSQSFullAccess` for faster setup
 
 ### [ ] 3.3 Add SQS Trigger
 - [ ] Lambda → Add trigger
@@ -137,6 +163,7 @@ ls -lh lambda.zip
   - Batch size: `1` (increase to 10 later for efficiency)
   - Batch window: `0`
 - [ ] Enable trigger
+- [ ] If AWS shows `ReceiveMessage` permission errors, re-check the Lambda execution role policy above
 
 ---
 

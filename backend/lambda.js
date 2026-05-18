@@ -6,10 +6,15 @@
  * 2. Calls the Laravel app webhook to process jobs
  * 3. Returns success or error
  * 
+ * Requirements:
+ * - Node.js: 22.x (latest supported on Lambda)
+ * 
  * Deployment:
  * - npm install axios
  * - zip -r lambda.zip lambda.js node_modules
  * - Upload to Lambda, set handler to "lambda.handler"
+ * - Runtime: Node.js 22.x
+ * - Timeout: 30 seconds
  */
 
 const axios = require('axios');

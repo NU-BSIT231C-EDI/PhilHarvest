@@ -125,8 +125,9 @@ LAMBDA_SECRET=your-random-secret
 1. Install Node.js dependencies: `npm install axios`
 2. Package Lambda: `zip -r lambda.zip lambda.js node_modules`
 3. Upload zip to Lambda console
-4. Add SQS trigger to Lambda
-5. Increase Lambda timeout to 30 seconds
+4. **Set runtime to Node.js 22.x** (latest supported)
+5. Add SQS trigger to Lambda
+6. Increase Lambda timeout to 30 seconds
 
 ### Phase 3: Test Locally (20 minutes)
 1. Update `.env` with AWS credentials
