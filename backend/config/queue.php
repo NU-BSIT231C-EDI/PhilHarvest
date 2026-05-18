@@ -71,6 +71,16 @@ return [
             'after_commit' => false,
         ],
 
+        'sqs' => [
+            'driver' => 'sqs',
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'prefix' => env('SQS_PREFIX', 'https://sqs.ap-southeast-1.amazonaws.com/your-account-id'),
+            'queue' => env('SQS_QUEUE', 'philharvest-queue'),
+            'region' => env('AWS_REGION', 'ap-southeast-1'),
+            'after_commit' => false,
+        ],
+
     ],
 
     /*

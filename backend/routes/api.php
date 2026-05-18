@@ -77,5 +77,9 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     Route::post('/transmissions/{transactionId}/retry', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'retryTransmission']);
 });
 
-// Webhook routes (coming soon)
-// Route::post('/webhooks/edi-ack', [\App\Http\Controllers\Api\Edi\WebhookController::class, 'ack']);
+// ============================================================================
+// AWS LAMBDA / SQS WEBHOOK ROUTES
+// ============================================================================
+
+// Lambda webhook to process queued jobs
+Route::post('/webhook/process-queue-job', [\App\Http\Controllers\Webhook\QueueWebhookController::class, 'processQueueJob']);

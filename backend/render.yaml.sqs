@@ -1,0 +1,64 @@
+services:
+  - type: web
+    name: philharvest-app
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: singapore
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: APP_NAME
+        value: PhilHarvest
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: APP_KEY
+        sync: false
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        value: philharvest-mysql
+      - key: DB_PORT
+        value: 3306
+      - key: DB_DATABASE
+        value: philharvest
+      - key: DB_USERNAME
+        value: root
+      - key: DB_PASSWORD
+        sync: false
+      - key: QUEUE_CONNECTION
+        value: sqs
+      - key: AWS_REGION
+        value: ap-southeast-1
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: SQS_PREFIX
+        sync: false
+      - key: SQS_QUEUE
+        value: philharvest-queue
+      - key: LAMBDA_SECRET
+        sync: false
+      - key: EDI_AUTH_TOKEN
+        value: test_token_here
+
+  - type: mysql
+    name: philharvest-mysql
+    version: "8.0"
+    plan: free
+    region: singapore
+    envVars:
+      - key: MYSQL_ROOT_PASSWORD
+        sync: false
+      - key: MYSQL_DATABASE
+        value: philharvest
+
+  # Redis is now OPTIONAL (only needed for caching/sessions if you want)
+  # If you want to keep Redis for cache, uncomment below:
+  # - type: redis
+  #   name: redis
+  #   version: "7"
+  #   plan: free
+  #   region: singapore
