@@ -28,7 +28,7 @@ services:
       - key: DB_PASSWORD
         sync: false
       - key: REDIS_HOST
-        value: philharvest-redis
+        value: redis
       - key: REDIS_PORT
         value: 6379
       - key: QUEUE_CONNECTION
@@ -64,14 +64,14 @@ services:
       - key: DB_PASSWORD
         sync: false
       - key: REDIS_HOST
-        value: philharvest-redis
+        value: redis
       - key: REDIS_PORT
         value: 6379
       - key: QUEUE_CONNECTION
         value: redis
       - key: EDI_AUTH_TOKEN
         value: test_token_here
-    startCommand: php artisan queue:work --sleep=3 --tries=3 --timeout=90
+    startCommand: php artisan queue:work --sleep=3 --tries=3
 
   - type: mysql
     name: philharvest-mysql
@@ -85,7 +85,7 @@ services:
         value: philharvest
 
   - type: redis
-    name: philharvest-redis
+    name: redis
     version: "7"
     plan: free
     region: singapore
