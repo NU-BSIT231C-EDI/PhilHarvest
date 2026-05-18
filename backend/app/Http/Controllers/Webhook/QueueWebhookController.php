@@ -213,7 +213,7 @@ class QueueWebhookController extends Controller
      */
     private function authenticateLambda(Request $request): bool
     {
-        $lambdaSecret = config('services.lambda.secret', env('LAMBDA_SECRET'));
+        $lambdaSecret = config('services.lambda.secret');
         $providedSecret = $request->bearerToken();
 
         if (!$lambdaSecret || !$providedSecret) {

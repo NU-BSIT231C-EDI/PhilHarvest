@@ -43,6 +43,7 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     
     // EDI 850: Purchase Order (from Manufacturer)
     Route::post('/850/receive', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive850']);
+    Route::post('/inbound/x12', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive850']);
     
     // EDI 990: Response to Load Tender (from Logistics Partner)
     Route::post('/990/receive', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive990']);

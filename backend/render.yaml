@@ -27,12 +27,20 @@ services:
         value: root
       - key: DB_PASSWORD
         sync: false
-      - key: REDIS_HOST
-        value: redis
-      - key: REDIS_PORT
-        value: 6379
       - key: QUEUE_CONNECTION
-        value: redis
+        value: sqs
+      - key: AWS_REGION
+        value: ap-southeast-1
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: SQS_PREFIX
+        sync: false
+      - key: SQS_QUEUE
+        value: philharvest-queue
+      - key: LAMBDA_SECRET
+        sync: false
       - key: EDI_AUTH_TOKEN
         value: test_token_here
 
@@ -47,8 +55,10 @@ services:
       - key: MYSQL_DATABASE
         value: philharvest
 
-  - type: redis
-    name: redis
-    version: "7"
-    plan: free
-    region: singapore
+  # Redis is now optional and only needed if you want cache/session storage.
+  # Uncomment if required:
+  # - type: redis
+  #   name: redis
+  #   version: "7"
+  #   plan: free
+  #   region: singapore
