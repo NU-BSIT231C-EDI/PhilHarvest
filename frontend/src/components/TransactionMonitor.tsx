@@ -22,10 +22,21 @@ export default function TransactionMonitor({ refreshTrigger = 0 }: TransactionMo
   const [transactions, setTransactions] = useState<TransactionRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(true)
 
   useEffect(() => {
     void fetchTransactions()
   }, [refreshTrigger])
+
+  useEffect(() => {
+    if (!autoRefresh) return
+
+    const interval = setInterval(() => {
+      void fetchTransactions()
+    }, 3000) // Refresh every 3 seconds
+
+    return () => clearInterval(interval)
+  }, [autoRefresh])
 
   const fetchTransactions = async () => {
     try {
@@ -61,9 +72,19 @@ export default function TransactionMonitor({ refreshTrigger = 0 }: TransactionMo
           <h2>EDI Traffic</h2>
           <p>Recent inbound 850/990 and outbound 855/856/810/204 documents.</p>
         </div>
-        <button onClick={() => void fetchTransactions()} className="refresh-btn">
-          Refresh traffic
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+            />
+            Auto-refresh
+          </label>
+          <button onClick={() => void fetchTransactions()} className="refresh-btn">
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {loading ? <div className="loading">Loading transactions...</div> : null}

@@ -38,25 +38,27 @@ function App() {
     event.preventDefault()
     setIsSubmitting(true)
 
-    const controlNumber = String(Date.now() % 1000000000).padStart(9, '0')
+    const controlNumber = String(Date.now() % 10000000000).padStart(10, '0')
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const timeHHMM = new Date().toISOString().slice(11, 16).replace(/:/g, '')
+    
+    // X12 format matching production successful test
     const testPayload =
-      `ISA*00*          *00*          *ZZ*SERMACROPS     *ZZ*PHILHARVEST   *${today.slice(2)}*1200*^*00501*${controlNumber}*0*P*:~` +
-      `GS*PO*SERMACROPS*PHILHARVEST*${today}*1200*1*X*005010~` +
+      `ISA*00*          *00*          *ZZ*GLOBAL_TRADE   *ZZ*PHILHARVEST    *${today}*${timeHHMM}*U*00501*${controlNumber}*0*T*:~` +
+      `GS*PO*GLOBAL_TRADE*PHILHARVEST*${today}*${timeHHMM}*1*X*005010~` +
       'ST*850*0001~' +
-      `BEG*00*SA*PO-TEST-${controlNumber}**${today}~` +
-      'PO1*1*50*KG*125.50**VP*TOMATO-RIP-01~' +
-      'PID*F****Tomatoes~' +
+      `BEG*00*SA*PO-TEST-${controlNumber}*${today}~` +
+      'PO1*1*50*EA*25.00**VP*TEST-ITEM~' +
       'CTT*1~' +
-      'SE*5*0001~' +
+      'SE*6*0001~' +
       'GE*1*1~' +
       `IEA*1*${controlNumber}~`
 
     try {
-      const response = await fetch(`${apiUrl}/api/edi/850/receive`, {
+      const response = await fetch(`${apiUrl}/api/edi/inbound/x12`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/EDI-X12',
+          'Content-Type': 'application/x12',
           Authorization: `Bearer ${token}`,
         },
         body: testPayload,
@@ -67,7 +69,7 @@ function App() {
         addNotification(
           'success',
           'EDI 850 accepted',
-          `Transaction ${payload.transaction_id ?? 'N/A'} stored with control ${payload.control_number ?? controlNumber}.`,
+          `Transaction ${payload.transaction_id ?? 'N/A'} queued — check the monitor below to watch it process.`,
         )
         setActiveTestForm(null)
         bumpRefresh()
