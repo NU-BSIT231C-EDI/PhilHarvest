@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import OrderList from './components/OrderList'
 import TransactionMonitor from './components/TransactionMonitor'
+import OutboundRequestBuilder from './components/OutboundRequestBuilder'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import './App.css'
 
@@ -205,7 +205,7 @@ function App() {
 
       <main className="dashboard-grid">
         <ErrorBoundary>
-          <OrderList refreshTrigger={refreshTrigger} />
+          <OutboundRequestBuilder onNotification={addNotification} />
         </ErrorBoundary>
         <ErrorBoundary>
           <TransactionMonitor refreshTrigger={refreshTrigger} />
