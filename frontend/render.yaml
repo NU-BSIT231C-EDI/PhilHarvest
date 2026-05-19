@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: philharvest-frontend
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run preview
+    envVars:
+      - key: VITE_API_URL
+        value: https://philharvest.onrender.com
+      - key: VITE_EDI_AUTH_TOKEN
+        value: master_api_key_secret_123456
