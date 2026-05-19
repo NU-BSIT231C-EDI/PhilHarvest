@@ -80,7 +80,7 @@ git push  # Render auto-deploys
 ### 3. Test Production Flow
 ```bash
 # Send test EDI to production
-curl -X POST https://your-render-app.onrender.com/api/edi/inbound/x12 \
+curl -X POST https://philharvest.onrender.com/api/edi/inbound/x12 \
   -H "Content-Type: application/x12" \
   -H "Authorization: Bearer master_api_key_secret_123456" \
   --data-binary @backend/test_x12.txt
