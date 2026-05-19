@@ -136,6 +136,7 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
   })
 
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isSendingX12, setIsSendingX12] = useState(false)
   const [x12Preview, setX12Preview] = useState<string | null>(null)
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false)
 
@@ -156,6 +157,64 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
       ...config,
       headers: { ...config.headers, [key]: value },
     })
+  }
+
+  const handleSendX12ToPartner = async () => {
+    setIsSendingX12(true)
+    try {
+      // Step 1: generate X12 from JSON body via PhilHarvest preview endpoint
+      const bodyObj = JSON.parse(config.body)
+      const previewUrl = `${apiUrl}${previewEndpoints[config.ediType]}`
+      const previewResponse = await fetch(previewUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${philHarvestToken}`,
+        },
+        body: JSON.stringify(bodyObj),
+      })
+
+      if (!previewResponse.ok) {
+        const previewData = await previewResponse.json()
+        onNotification('error', 'X12 generation failed', previewData.message || `HTTP ${previewResponse.status}`)
+        return
+      }
+
+      const previewData = await previewResponse.json()
+      const x12String = previewData.x12_payload as string
+      setX12Preview(x12String)
+
+      // Step 2: relay to partner with x12Content wrapper
+      const relayResponse = await fetch(`${apiUrl}/api/edi/relay`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${philHarvestToken}`,
+        },
+        body: JSON.stringify({
+          url: config.endpoint,
+          method: 'POST',
+          headers: config.headers,
+          body: JSON.stringify({ x12Content: x12String }),
+        }),
+      })
+
+      const relayData = await relayResponse.json()
+      if (relayResponse.ok) {
+        const partnerStatus = relayData.status as number
+        if (partnerStatus >= 200 && partnerStatus < 300) {
+          onNotification('success', `EDI ${config.ediType} sent to partner`, `HTTP ${partnerStatus}: ${String(relayData.body).slice(0, 120)}`)
+        } else {
+          onNotification('error', `Partner rejected (HTTP ${partnerStatus})`, String(relayData.body).slice(0, 200))
+        }
+      } else {
+        onNotification('error', 'Relay failed', relayData.message || `HTTP ${relayResponse.status}`)
+      }
+    } catch (error) {
+      onNotification('error', 'Failed', error instanceof Error ? error.message : 'Unknown error')
+    } finally {
+      setIsSendingX12(false)
+    }
   }
 
   const handleSend = async (e: React.FormEvent) => {
@@ -370,19 +429,31 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
         )}
 
         {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={handleGeneratePreview}
-            disabled={isGeneratingPreview || isSubmitting}
+            disabled={isGeneratingPreview || isSubmitting || isSendingX12}
             className="send-btn"
             style={{ background: 'var(--blue)', flex: 1 }}
           >
             {isGeneratingPreview ? 'Generating...' : 'Generate X12 Preview'}
           </button>
-          <button type="submit" disabled={isSubmitting} className="send-btn" style={{ flex: 1 }}>
-            {isSubmitting ? 'Sending...' : 'Send Request'}
-          </button>
+          {isAbsoluteEndpoint ? (
+            <button
+              type="button"
+              onClick={handleSendX12ToPartner}
+              disabled={isSendingX12 || isSubmitting || isGeneratingPreview}
+              className="send-btn"
+              style={{ background: 'var(--green, #2e7d32)', flex: 1 }}
+            >
+              {isSendingX12 ? 'Generating & Sending...' : 'Generate X12 & Send to Partner'}
+            </button>
+          ) : (
+            <button type="submit" disabled={isSubmitting} className="send-btn" style={{ flex: 1 }}>
+              {isSubmitting ? 'Sending...' : 'Send Request'}
+            </button>
+          )}
         </div>
       </form>
     </section>
