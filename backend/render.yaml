@@ -5,7 +5,6 @@ services:
     dockerfilePath: ./Dockerfile
     region: singapore
     plan: free
-    buildCommand: php artisan migrate --force
     healthCheckPath: /
     envVars:
       - key: APP_NAME
