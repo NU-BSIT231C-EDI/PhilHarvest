@@ -17,17 +17,17 @@ services:
       - key: APP_KEY
         sync: false
       - key: DB_CONNECTION
-        value: mysql
+        value: pgsql
       - key: DB_HOST
-        value: philharvest-mysql
+        value: dpg-d866n16gvqtc73ee49og-a
       - key: DB_PORT
-        value: 3306
+        value: 5432
       - key: DB_DATABASE
         value: philharvest
       - key: DB_USERNAME
-        value: root
+        value: admin
       - key: DB_PASSWORD
-        sync: false
+        value: Q3iYcq6l2pXl18rGdkJeqwTM2UTGQZVM
       - key: QUEUE_CONNECTION
         value: sqs
       - key: AWS_REGION
@@ -44,17 +44,6 @@ services:
         sync: false
       - key: EDI_AUTH_TOKEN
         value: test_token_here
-
-  - type: mysql
-    name: philharvest-mysql
-    version: "8.0"
-    plan: free
-    region: singapore
-    envVars:
-      - key: MYSQL_ROOT_PASSWORD
-        sync: false
-      - key: MYSQL_DATABASE
-        value: philharvest
 
   # Redis is now optional and only needed if you want cache/session storage.
   # Uncomment if required:
