@@ -11,7 +11,7 @@ interface Notification {
   message: string
 }
 
-type TestFormType = '850' | '855' | null
+type TestFormType = '850' | '855' | '990' | null
 
 function App() {
   const [activeTestForm, setActiveTestForm] = useState<TestFormType>(null)
@@ -144,6 +144,55 @@ function App() {
     }
   }
 
+  const handleTestEdi990 = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setIsSubmitting(true)
+
+    const controlNumber = String(Date.now() % 10000000000).padStart(10, '0')
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const timeHHMM = new Date().toISOString().slice(11, 16).replace(/:/g, '')
+
+    // X12 990 — Response to Load Tender (AA = Accept)
+    // Parser reads: BEG[1]=responseCode, BEG[2]=loadTenderId, N1 CN=carrier
+    const testPayload =
+      `ISA*00*          *00*          *ZZ*XYZ_CARRIER    *ZZ*PHILHARVEST    *${today}*${timeHHMM}*U*00501*${controlNumber}*0*T*:~` +
+      `GS*SR*XYZ_CARRIER*PHILHARVEST*${today}*${timeHHMM}*1*X*005010~` +
+      'ST*990*0001~' +
+      'BEG*AA*LOAD-TEST-001~' +
+      'N1*CN*XYZ Carrier Inc*ZZ*XYZ_CARRIER~' +
+      'SE*4*0001~' +
+      'GE*1*1~' +
+      `IEA*1*${controlNumber}~`
+
+    try {
+      const response = await fetch(`${apiUrl}/api/edi/990/receive`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x12',
+          Authorization: `Bearer ${token}`,
+        },
+        body: testPayload,
+      })
+
+      const payload = await response.json()
+      if (response.ok || response.status === 202) {
+        addNotification(
+          'success',
+          'EDI 990 accepted',
+          `Transaction ${payload.transaction_id ?? 'N/A'} queued — response code: ${payload.response_code ?? 'N/A'}, accepted: ${payload.is_accepted ? 'yes' : 'no'}.`,
+        )
+        setActiveTestForm(null)
+        bumpRefresh()
+      } else {
+        addNotification('error', '990 submission failed', payload.error || `HTTP ${response.status}`)
+      }
+    } catch (error) {
+      addNotification('error', '990 submission failed', error instanceof Error ? error.message : 'Unknown error')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="hero">
@@ -167,6 +216,9 @@ function App() {
         </button>
         <button className="nav-btn" onClick={() => setActiveTestForm(activeTestForm === '855' ? null : '855')}>
           {activeTestForm === '855' ? 'Hide test 855' : 'Send test 855'}
+        </button>
+        <button className="nav-btn" onClick={() => setActiveTestForm(activeTestForm === '990' ? null : '990')}>
+          {activeTestForm === '990' ? 'Hide test 990' : 'Send test 990'}
         </button>
       </nav>
 
@@ -198,6 +250,18 @@ function App() {
           <form onSubmit={handleTestEdi855}>
             <button type="submit" className="submit-btn" disabled={isSubmitting}>
               {isSubmitting ? 'Sending...' : 'Submit test 855'}
+            </button>
+          </form>
+        </section>
+      ) : null}
+
+      {activeTestForm === '990' ? (
+        <section className="action-card">
+          <h2>Send a test inbound 990</h2>
+          <p>Posts a raw X12 990 (Load Tender Response, code AA) to our inbound endpoint to verify end-to-end 990 receipt and parsing.</p>
+          <form onSubmit={handleTestEdi990}>
+            <button type="submit" className="submit-btn" disabled={isSubmitting}>
+              {isSubmitting ? 'Sending...' : 'Submit test 990'}
             </button>
           </form>
         </section>

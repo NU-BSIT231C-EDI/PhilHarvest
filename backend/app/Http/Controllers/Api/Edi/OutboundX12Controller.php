@@ -606,11 +606,28 @@ class OutboundX12Controller
     {
         try {
             $validated = $request->validate([
-                'load_tender_id' => 'required|string',
+                'load_tender_id'       => 'required|string',
                 'shipper_company_name' => 'required|string',
+                'shipper_address'      => 'required|array',
+                'carrier_code'         => 'required|string',
+                'ship_to_address'      => 'required|array',
+                'shipments'            => 'required|array',
+                'pickup_date'          => 'nullable|date',
+                'delivery_date'        => 'nullable|date',
             ]);
 
-            $x12Payload = $this->edi204Generator->generate((object)$validated);
+            $dto = new \App\DTOs\Edi\Edi204MotorCarrierLoadTenderDto(
+                controlNumber:       uniqid('PREV204_'),
+                loadTenderId:        $validated['load_tender_id'],
+                shipperCompanyName:  $validated['shipper_company_name'],
+                shipperAddress:      $validated['shipper_address'],
+                carrierCode:         $validated['carrier_code'],
+                shipToAddress:       $validated['ship_to_address'],
+                pickupDate:          $validated['pickup_date'] ?? date('Ymd'),
+                deliveryDate:        $validated['delivery_date'] ?? null,
+            );
+
+            $x12Payload = $this->edi204Generator->generate($dto);
 
             return response()->json([
                 'x12_payload' => $x12Payload,
@@ -640,10 +657,28 @@ class OutboundX12Controller
     {
         try {
             $validated = $request->validate([
-                'shipment_id' => 'required|string',
+                'asn_number'       => 'required|string',
+                'po_number'        => 'required|string',
+                'po_date'          => 'required|date',
+                'manufacturer_id'  => 'required|string',
+                'ship_date'        => 'required|date',
+                'ship_from_address'=> 'required|array',
+                'ship_to_address'  => 'required|array',
+                'boxes'            => 'required|array',
             ]);
 
-            $x12Payload = $this->edi856Generator->generate((object)$validated);
+            $dto = new \App\DTOs\Edi\Edi856AdvanceShipNoticeDto(
+                controlNumber:    uniqid('PREV856_'),
+                asnNumber:        $validated['asn_number'],
+                poNumber:         $validated['po_number'],
+                poDate:           $validated['po_date'],
+                manufacturerId:   $validated['manufacturer_id'],
+                shipDate:         $validated['ship_date'],
+                shipFromAddress:  $validated['ship_from_address'],
+                shipToAddress:    $validated['ship_to_address'],
+            );
+
+            $x12Payload = $this->edi856Generator->generate($dto);
 
             return response()->json([
                 'x12_payload' => $x12Payload,
@@ -673,10 +708,45 @@ class OutboundX12Controller
     {
         try {
             $validated = $request->validate([
-                'invoice_number' => 'required|string',
+                'invoice_number'    => 'required|string',
+                'invoice_date'      => 'required|date',
+                'po_number'         => 'required|string',
+                'po_date'           => 'required|date',
+                'manufacturer_id'   => 'required|string',
+                'bill_to_name'      => 'required|string',
+                'bill_to_address'   => 'required|array',
+                'ship_from_address' => 'required|array',
+                'line_items'        => 'required|array',
+                'total_amount'      => 'required|numeric',
             ]);
 
-            $x12Payload = $this->edi810Generator->generate((object)$validated);
+            $dto = new \App\DTOs\Edi\Edi810InvoiceDto(
+                controlNumber:    uniqid('PREV810_'),
+                invoiceNumber:    $validated['invoice_number'],
+                invoiceDate:      $validated['invoice_date'],
+                poNumber:         $validated['po_number'],
+                poDate:           $validated['po_date'],
+                manufacturerId:   $validated['manufacturer_id'],
+                billToName:       $validated['bill_to_name'],
+                billToAddress:    $validated['bill_to_address'],
+                shipFromAddress:  $validated['ship_from_address'],
+                totalAmount:      (float)$validated['total_amount'],
+            );
+
+            foreach ($validated['line_items'] as $lineItem) {
+                $dto->addLineItem(new \App\DTOs\Edi\Edi810LineItemDto(
+                    lineNumber:       $lineItem['line_number'] ?? '0',
+                    poLineNumber:     $lineItem['po_line_number'] ?? '0',
+                    partNumber:       $lineItem['part_number'],
+                    partDescription:  $lineItem['part_description'],
+                    invoicedQuantity: (float)$lineItem['invoiced_quantity'],
+                    quantityUom:      $lineItem['quantity_uom'] ?? 'EA',
+                    unitPrice:        (float)$lineItem['unit_price'],
+                ));
+            }
+
+            $dto->calculateTotals();
+            $x12Payload = $this->edi810Generator->generate($dto);
 
             return response()->json([
                 'x12_payload' => $x12Payload,
