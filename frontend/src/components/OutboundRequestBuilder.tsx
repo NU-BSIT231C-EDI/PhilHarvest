@@ -21,7 +21,7 @@ interface OutboundRequestBuilderProps {
 
 export default function OutboundRequestBuilder({ onNotification }: OutboundRequestBuilderProps) {
   const apiUrl = import.meta.env.VITE_API_URL ?? ''
-  const token = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
+  const philHarvestToken = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
 
   const generateSampleBody = (type: '855' | '810' | '856' | '204') => {
     const templates: Record<string, object> = {
@@ -80,7 +80,7 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
         shipment_number: 'SHIP-2025-001',
         po_number: 'PO-2025-8842',
         shipment_date: new Date().toISOString().slice(0, 10),
-        destination_code: 'SERMACROPS',
+        destination_code: 'PARTNER_CODE',
         total_quantity: 250,
         line_items: [
           {
@@ -103,11 +103,25 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
         total_weight: 250,
         weight_uom: 'LB',
         carrier_code: 'XYZ_CARRIER',
-        destination: 'SERMACROPS',
+        destination: 'PARTNER_CODE',
       },
     }
 
     return JSON.stringify(templates[type], null, 2)
+  }
+
+  const philHarvestEndpoints: Record<string, string> = {
+    '855': '/api/edi/855/send',
+    '810': '/api/edi/810/send',
+    '856': '/api/edi/856/send',
+    '204': '/api/edi/204/send',
+  }
+
+  const previewEndpoints: Record<string, string> = {
+    '855': '/api/edi/855/preview',
+    '810': '/api/edi/810/preview',
+    '856': '/api/edi/856/preview',
+    '204': '/api/edi/204/preview',
   }
 
   const [config, setConfig] = useState<RequestConfig>({
@@ -115,7 +129,7 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
     endpoint: '/api/edi/855/send',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${philHarvestToken}`,
     },
     body: generateSampleBody('855'),
     ediType: '855',
@@ -125,17 +139,14 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
   const [x12Preview, setX12Preview] = useState<string | null>(null)
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false)
 
+  const isAbsoluteEndpoint =
+    config.endpoint.startsWith('http://') || config.endpoint.startsWith('https://')
+
   const handleEdiTypeChange = (type: '855' | '810' | '856' | '204') => {
-    const endpoints: Record<string, string> = {
-      '855': '/api/edi/855/send',
-      '810': '/api/edi/810/send',
-      '856': '/api/edi/856/send',
-      '204': '/api/edi/204/send',
-    }
     setConfig({
       ...config,
       ediType: type,
-      endpoint: endpoints[type],
+      endpoint: philHarvestEndpoints[type],
       body: generateSampleBody(type),
     })
   }
@@ -152,23 +163,61 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
     setIsSubmitting(true)
 
     try {
-      // Build full URL - handle both relative and absolute endpoints
-      let fullUrl = config.endpoint
-      if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
-        fullUrl = `${apiUrl}${config.endpoint}`
-      }
+      if (isAbsoluteEndpoint) {
+        // Route through PhilHarvest relay to avoid browser CORS on cross-origin calls
+        const relayUrl = `${apiUrl}/api/edi/relay`
+        const relayResponse = await fetch(relayUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${philHarvestToken}`,
+          },
+          body: JSON.stringify({
+            url: config.endpoint,
+            method: config.method,
+            headers: config.headers,
+            body: config.method !== 'GET' ? config.body : null,
+          }),
+        })
 
-      const response = await fetch(fullUrl, {
-        method: config.method,
-        headers: config.headers,
-        body: config.method !== 'GET' ? config.body : undefined,
-      })
-
-      const data = await response.json()
-      if (response.ok || response.status === 202) {
-        onNotification('success', `EDI ${config.ediType} sent`, `Status ${response.status}: ${JSON.stringify(data).slice(0, 100)}...`)
+        const relayData = await relayResponse.json()
+        if (relayResponse.ok) {
+          const partnerStatus = relayData.status as number
+          if (partnerStatus >= 200 && partnerStatus < 300) {
+            onNotification(
+              'success',
+              `EDI ${config.ediType} sent`,
+              `Partner returned ${partnerStatus}: ${String(relayData.body).slice(0, 120)}`,
+            )
+          } else {
+            onNotification(
+              'error',
+              `Partner rejected (HTTP ${partnerStatus})`,
+              String(relayData.body).slice(0, 200),
+            )
+          }
+        } else {
+          onNotification('error', 'Relay failed', relayData.message || `HTTP ${relayResponse.status}`)
+        }
       } else {
-        onNotification('error', 'Send failed', data.error || `HTTP ${response.status}`)
+        // Direct call to PhilHarvest's own endpoints
+        const fullUrl = `${apiUrl}${config.endpoint}`
+        const response = await fetch(fullUrl, {
+          method: config.method,
+          headers: config.headers,
+          body: config.method !== 'GET' ? config.body : undefined,
+        })
+
+        const data = await response.json()
+        if (response.ok || response.status === 202) {
+          onNotification(
+            'success',
+            `EDI ${config.ediType} sent`,
+            `Status ${response.status}: ${JSON.stringify(data).slice(0, 100)}...`,
+          )
+        } else {
+          onNotification('error', 'Send failed', data.error || `HTTP ${response.status}`)
+        }
       }
     } catch (error) {
       onNotification('error', 'Send failed', error instanceof Error ? error.message : 'Unknown error')
@@ -180,20 +229,15 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
   const handleGeneratePreview = async () => {
     setIsGeneratingPreview(true)
     try {
-      // Try to parse body as JSON
       const bodyObj = JSON.parse(config.body)
-      
-      // Call backend preview endpoint
-      let previewUrl = config.endpoint.replace('/send', '/preview')
-      if (!previewUrl.startsWith('http://') && !previewUrl.startsWith('https://')) {
-        previewUrl = `${apiUrl}${previewUrl}`
-      }
 
+      // Preview always calls PhilHarvest's own preview endpoints (needs JSON body)
+      const previewUrl = `${apiUrl}${previewEndpoints[config.ediType]}`
       const response = await fetch(previewUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: config.headers['Authorization'],
+          Authorization: `Bearer ${philHarvestToken}`,
         },
         body: JSON.stringify(bodyObj),
       })
@@ -216,7 +260,7 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
     <section className="request-builder-panel">
       <div className="panel-header">
         <h2>Outbound EDI Request Builder</h2>
-        <p>Send 855/810/856/204 to SERMACROPS trading partner</p>
+        <p>Generate and send EDI documents to any trading partner</p>
       </div>
 
       <form onSubmit={handleSend} className="request-form">
@@ -244,7 +288,10 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
         <div className="form-row">
           <div className="form-group">
             <label>Method</label>
-            <select value={config.method} onChange={(e) => setConfig({ ...config, method: e.target.value as any })}>
+            <select
+              value={config.method}
+              onChange={(e) => setConfig({ ...config, method: e.target.value as RequestConfig['method'] })}
+            >
               <option>GET</option>
               <option>POST</option>
               <option>PUT</option>
@@ -257,14 +304,23 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
               type="text"
               value={config.endpoint}
               onChange={(e) => setConfig({ ...config, endpoint: e.target.value })}
-              placeholder="/api/edi/855/send"
+              placeholder="/api/edi/855/send  or  https://partner.com/api/edi/inbound"
             />
+            {isAbsoluteEndpoint && (
+              <p className="form-help" style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--blue)' }}>
+                External URL — request will be relayed via PhilHarvest backend (no CORS issues)
+              </p>
+            )}
           </div>
         </div>
 
         {/* Headers */}
         <div className="form-group">
-          <label>Headers (edit auth token as needed)</label>
+          <label>
+            {isAbsoluteEndpoint
+              ? 'Request Headers (sent to partner endpoint)'
+              : 'Request Headers (sent to PhilHarvest endpoint)'}
+          </label>
           <div className="headers-container">
             {Object.entries(config.headers).map(([key, value]) => (
               <div key={key} className="header-row">
@@ -274,20 +330,21 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
                   value={value}
                   onChange={(e) => handleHeaderChange(key, e.target.value)}
                   className="header-value"
-                  title={key === 'Authorization' ? 'Use SERMACROPS token (Bearer xxx)' : undefined}
                 />
               </div>
             ))}
           </div>
           <p className="form-help" style={{ margin: '8px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
-            💡 Change the Authorization value to your trading partner's token
+            {isAbsoluteEndpoint
+              ? 'These headers go directly to the partner — update Authorization to the partner\'s token'
+              : 'Authorization is PhilHarvest\'s API token for authenticating with the backend'}
           </p>
         </div>
 
         {/* Body */}
         {config.method !== 'GET' && (
           <div className="form-group">
-            <label>Body (JSON)</label>
+            <label>Body</label>
             <textarea
               value={config.body}
               onChange={(e) => setConfig({ ...config, body: e.target.value })}

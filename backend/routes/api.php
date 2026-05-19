@@ -52,6 +52,9 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     // OUTBOUND ENDPOINTS - Generate and transmit raw X12 EDI strings
     // ========================================================================
     
+    // Relay: proxy an outbound EDI HTTP call server-side (avoids browser CORS)
+    Route::post('/relay', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'relay']);
+
     // EDI 855: Purchase Order Acknowledgment (to Manufacturer)
     Route::post('/855/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send855']);
     Route::post('/855/preview', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'preview855']);

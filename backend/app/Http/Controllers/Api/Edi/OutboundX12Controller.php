@@ -520,6 +520,53 @@ class OutboundX12Controller
     }
 
     /**
+     * Relay an outbound EDI request to any partner URL server-side (avoids browser CORS).
+     * POST /api/edi/relay
+     *
+     * Body: { url, method, headers, body }
+     */
+    public function relay(Request $request)
+    {
+        $validated = $request->validate([
+            'url'     => 'required|string',
+            'method'  => 'required|in:GET,POST,PUT,DELETE,PATCH',
+            'headers' => 'nullable|array',
+            'body'    => 'nullable|string',
+        ]);
+
+        try {
+            $headers     = $validated['headers'] ?? [];
+            $contentType = $headers['Content-Type'] ?? $headers['content-type'] ?? 'application/json';
+            $method      = strtolower($validated['method']);
+            $url         = $validated['url'];
+            $body        = $validated['body'] ?? null;
+
+            $http = \Illuminate\Support\Facades\Http::withHeaders($headers)->timeout(30);
+
+            $response = ($method === 'get')
+                ? $http->get($url)
+                : $http->withBody($body ?? '', $contentType)->{$method}($url);
+
+            Log::info('EDI relay forwarded', [
+                'url'    => $url,
+                'method' => strtoupper($method),
+                'status' => $response->status(),
+            ]);
+
+            return response()->json([
+                'status' => $response->status(),
+                'body'   => $response->body(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('EDI relay failed', ['url' => $validated['url'], 'error' => $e->getMessage()]);
+            return response()->json([
+                'error'   => 'Relay failed',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Retry failed transmission
      * POST /api/edi/transmissions/{transactionId}/retry
      */
