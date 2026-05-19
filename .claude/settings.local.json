@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\nikol\\\\PhilHarvest\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(Format-List)"
+    ]
+  }
+}

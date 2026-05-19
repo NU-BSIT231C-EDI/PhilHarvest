@@ -203,6 +203,73 @@ class OutboundX12Controller
     }
 
     /**
+     * Preview X12 format for EDI 855 without sending
+     * POST /api/edi/855/preview
+     */
+    public function preview855(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'po_number' => 'required|string',
+                'po_date' => 'required|date',
+                'manufacturer_id' => 'required|string',
+                'acknowledgment_code' => 'required|in:AA,RE,IA',
+                'line_acknowledgments' => 'required|array|min:1',
+                'line_acknowledgments.*.line_number' => 'required|string',
+                'line_acknowledgments.*.acknowledgment_code' => 'required|in:AA,RE,IA',
+                'line_acknowledgments.*.accepted_quantity' => 'required|numeric|min:0',
+                'line_acknowledgments.*.quantity_uom' => 'required|string',
+            ]);
+
+            $validated = $validator->validate();
+
+            // Build DTO
+            $dto = new Edi855PurchaseOrderAckDto(
+                controlNumber: uniqid('PREV855_'),
+                poNumber: $validated['po_number'],
+                poDate: $validated['po_date'],
+                manufacturerId: $validated['manufacturer_id'],
+                acknowledgmentCode: $validated['acknowledgment_code'],
+                acknowledgedDate: date('Y-m-d'),
+            );
+
+            // Add line acknowledgments
+            foreach ($validated['line_acknowledgments'] as $lineAck) {
+                $dto->addLineAck(new Edi855LineAckDto(
+                    lineNumber: $lineAck['line_number'] ?? '0',
+                    acknowledgmentCode: $lineAck['acknowledgment_code'] ?? 'AA',
+                    acceptedQuantity: (float)($lineAck['accepted_quantity'] ?? 0),
+                    quantityUom: $lineAck['quantity_uom'] ?? 'EA',
+                ));
+            }
+
+            // Generate X12 string
+            $x12Payload = $this->edi855Generator->generate($dto);
+
+            return response()->json([
+                'x12_payload' => $x12Payload,
+                'message' => 'X12 855 preview generated (not sent)',
+            ], Response::HTTP_OK);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error' => 'Validation failed',
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\Exception $e) {
+            Log::error('Error previewing EDI 855', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => 'Preview failed',
+                'message' => 'Failed to generate EDI 855 preview',
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
      * Generate and send EDI 204 (Motor Carrier Load Tender)
      * POST /api/edi/204/send
      */
@@ -483,4 +550,105 @@ class OutboundX12Controller
             ], Response::HTTP_NOT_FOUND);
         }
     }
+
+    /**
+     * Preview X12 format for EDI 204 without sending
+     * POST /api/edi/204/preview
+     */
+    public function preview204(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'load_tender_id' => 'required|string',
+                'shipper_company_name' => 'required|string',
+            ]);
+
+            $x12Payload = $this->edi204Generator->generate((object)$validated);
+
+            return response()->json([
+                'x12_payload' => $x12Payload,
+                'message' => 'X12 204 preview generated (not sent)',
+            ], Response::HTTP_OK);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error' => 'Validation failed',
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\Exception $e) {
+            Log::error('Error previewing EDI 204', ['error' => $e->getMessage()]);
+            return response()->json([
+                'error' => 'Preview failed',
+                'message' => 'Failed to generate EDI 204 preview',
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Preview X12 format for EDI 856 without sending
+     * POST /api/edi/856/preview
+     */
+    public function preview856(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'shipment_id' => 'required|string',
+            ]);
+
+            $x12Payload = $this->edi856Generator->generate((object)$validated);
+
+            return response()->json([
+                'x12_payload' => $x12Payload,
+                'message' => 'X12 856 preview generated (not sent)',
+            ], Response::HTTP_OK);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error' => 'Validation failed',
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\Exception $e) {
+            Log::error('Error previewing EDI 856', ['error' => $e->getMessage()]);
+            return response()->json([
+                'error' => 'Preview failed',
+                'message' => 'Failed to generate EDI 856 preview',
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Preview X12 format for EDI 810 without sending
+     * POST /api/edi/810/preview
+     */
+    public function preview810(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'invoice_number' => 'required|string',
+            ]);
+
+            $x12Payload = $this->edi810Generator->generate((object)$validated);
+
+            return response()->json([
+                'x12_payload' => $x12Payload,
+                'message' => 'X12 810 preview generated (not sent)',
+            ], Response::HTTP_OK);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error' => 'Validation failed',
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\Exception $e) {
+            Log::error('Error previewing EDI 810', ['error' => $e->getMessage()]);
+            return response()->json([
+                'error' => 'Preview failed',
+                'message' => 'Failed to generate EDI 810 preview',
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
 }
+

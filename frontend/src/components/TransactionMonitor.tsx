@@ -41,7 +41,7 @@ export default function TransactionMonitor({ refreshTrigger = 0 }: TransactionMo
   const fetchTransactions = async () => {
     try {
       setLoading(true)
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+      const apiUrl = import.meta.env.VITE_API_URL ?? ''
       const token = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
 
       const response = await fetch(`${apiUrl}/api/edi/transactions`, {

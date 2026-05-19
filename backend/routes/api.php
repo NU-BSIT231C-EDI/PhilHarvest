@@ -54,15 +54,19 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     
     // EDI 855: Purchase Order Acknowledgment (to Manufacturer)
     Route::post('/855/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send855']);
+    Route::post('/855/preview', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'preview855']);
     
     // EDI 204: Motor Carrier Load Tender (to Logistics Partner)
     Route::post('/204/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send204']);
+    Route::post('/204/preview', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'preview204']);
     
     // EDI 856: Advance Ship Notice / ASN (to Manufacturer)
     Route::post('/856/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send856']);
+    Route::post('/856/preview', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'preview856']);
     
     // EDI 810: Invoice (to Manufacturer)
     Route::post('/810/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send810']);
+    Route::post('/810/preview', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'preview810']);
     
     // ========================================================================
     // TRANSACTION MANAGEMENT ENDPOINTS

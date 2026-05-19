@@ -19,7 +19,7 @@ function App() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  const apiUrl = import.meta.env.VITE_API_URL ?? ''
   const token = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
 
   const addNotification = (type: Notification['type'], title: string, message: string) => {
