@@ -236,7 +236,16 @@ class Edi850Parser
         }
 
         if ($n1Position === null) {
-            return [];
+            return [
+                'company_name' => null,
+                'company_id'   => null,
+                'id_qualifier' => null,
+                'street'       => null,
+                'city'         => null,
+                'state'        => null,
+                'postal_code'  => null,
+                'country'      => null,
+            ];
         }
 
         $n1 = $this->segments[$n1Position];

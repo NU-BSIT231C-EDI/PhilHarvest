@@ -190,7 +190,11 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
 
       if (!previewResponse.ok) {
         const previewData = await previewResponse.json()
-        onNotification('error', 'X12 generation failed', previewData.message || `HTTP ${previewResponse.status}`)
+        const msg =
+          typeof previewData.message === 'string'
+            ? previewData.message
+            : JSON.stringify(previewData.message ?? previewData.error ?? `HTTP ${previewResponse.status}`)
+        onNotification('error', 'X12 generation failed', msg)
         return
       }
 

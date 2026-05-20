@@ -258,7 +258,14 @@ function build204Prefill(tx: TransactionRecord): Record<string, unknown> {
     shipper_company_name: 'PhilHarvest Inc.',
     shipper_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
     carrier_code: 'YOUR_CARRIER_CODE',
-    ship_to_address: d.ship_to_address ?? { street: '', city: '', state: '', postal_code: '', country: '' },
+    ship_to_address:
+      d.ship_to_address !== null &&
+      d.ship_to_address !== undefined &&
+      typeof d.ship_to_address === 'object' &&
+      !Array.isArray(d.ship_to_address) &&
+      Object.keys(d.ship_to_address as object).length > 0
+        ? d.ship_to_address
+        : { street: '', city: '', state: '', postal_code: '', country: '' },
     shipments: [{ shipment_number: `SHIP-${poNumber}`, weight: 0, weight_uom: 'LB', commodity: 'Agricultural Products' }],
     pickup_date: today,
     delivery_date: new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10),
