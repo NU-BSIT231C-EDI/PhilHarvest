@@ -325,7 +325,7 @@ function build810Prefill(tx: TransactionRecord): Record<string, unknown> {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowAction }: TransactionMonitorProps) {
-  const PAGE_SIZE = 10
+  const PAGE_SIZE = 5
 
   const [transactions, setTransactions] = useState<TransactionRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -333,6 +333,7 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [ackingId, setAckingId] = useState<number | null>(null)
   const [page, setPage] = useState(1)
+  const [clearing, setClearing] = useState(false)
 
   useEffect(() => {
     void fetchTransactions()
@@ -368,6 +369,23 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
     setAckingId(null)
   }
 
+  const handleClearHistory = async (keep: number) => {
+    if (!window.confirm(`Delete all but the ${keep} most recent transactions?`)) return
+    setClearing(true)
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL ?? ''
+      const token = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
+      await fetch(`${apiUrl}/api/edi/transactions?keep=${keep}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      setPage(1)
+      await fetchTransactions()
+    } finally {
+      setClearing(false)
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(transactions.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
   const pagedTransactions = transactions.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
@@ -386,6 +404,14 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
           </label>
           <button onClick={() => void fetchTransactions()} className="refresh-btn">
             {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
+          <button
+            onClick={() => void handleClearHistory(3)}
+            className="refresh-btn"
+            disabled={clearing}
+            style={{ color: 'var(--red, #c0392b)' }}
+          >
+            {clearing ? 'Clearing...' : 'Clear history'}
           </button>
         </div>
       </div>

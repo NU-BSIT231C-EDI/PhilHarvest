@@ -38,13 +38,36 @@ class OutboundController
     }
 
     /**
+     * Delete all EDI transactions except the N most recent
+     * DELETE /api/edi/transactions?keep=3
+     */
+    public function clearTransactions(\Illuminate\Http\Request $request)
+    {
+        $keep = max(0, (int) $request->query('keep', 3));
+
+        $keepIds = EdiTransaction::query()
+            ->latest()
+            ->limit($keep)
+            ->pluck('id');
+
+        $deleted = EdiTransaction::query()
+            ->when($keepIds->isNotEmpty(), fn($q) => $q->whereNotIn('id', $keepIds))
+            ->when($keepIds->isEmpty(), fn($q) => $q)
+            ->delete();
+
+        return response()->json([
+            'deleted' => $deleted,
+            'kept'    => $keepIds->count(),
+        ]);
+    }
+
+    /**
      * List recent EDI transactions for dashboard monitoring
      */
     public function listTransactions()
     {
         $transactions = EdiTransaction::query()
             ->latest()
-            ->limit(25)
             ->get([
                 'id',
                 'transaction_type',
