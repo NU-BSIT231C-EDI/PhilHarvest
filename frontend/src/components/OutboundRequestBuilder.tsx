@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { WorkflowPrefill } from '../App'
+import type { TradingPartner } from './TradingPartnerManager'
 
 function formatX12(raw: string): string {
   return raw
@@ -25,11 +26,12 @@ interface Notification {
 }
 
 interface OutboundRequestBuilderProps {
-  onNotification: (type: Notification['type'], title: string, message: string) => void
-  workflowPrefill?: WorkflowPrefill | null
+  readonly onNotification: (type: Notification['type'], title: string, message: string) => void
+  readonly workflowPrefill?: WorkflowPrefill | null
+  readonly partners?: TradingPartner[]
 }
 
-export default function OutboundRequestBuilder({ onNotification, workflowPrefill }: OutboundRequestBuilderProps) {
+export default function OutboundRequestBuilder({ onNotification, workflowPrefill, partners = [] }: OutboundRequestBuilderProps) {
   const apiUrl = import.meta.env.VITE_API_URL ?? ''
   const philHarvestToken = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
 
@@ -142,6 +144,21 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
   const [isSendingX12, setIsSendingX12] = useState(false)
   const [x12Preview, setX12Preview] = useState<string | null>(null)
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false)
+  const [selectedPartnerId, setSelectedPartnerId] = useState<string>('')
+
+  const handleApplyPartner = (partnerId: string) => {
+    setSelectedPartnerId(partnerId)
+    if (!partnerId) return
+    const partner = partners.find((p) => String(p.id) === partnerId)
+    if (!partner) return
+    setConfig((prev) => ({
+      ...prev,
+      endpoint: partner.api_endpoint,
+      headers: { ...prev.headers, Authorization: `Bearer ${partner.auth_token}` },
+    }))
+    setX12Preview(null)
+    onNotification('info', `Partner applied: ${partner.label}`, 'Endpoint and auth token updated — review before sending.')
+  }
 
   useEffect(() => {
     if (!workflowPrefill) return
@@ -356,6 +373,23 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
       )}
 
       <form onSubmit={handleSend} className="request-form">
+        {/* Partner selector */}
+        {partners.length > 0 && (
+          <div className="form-group" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+            <div style={{ flex: 1 }}>
+              <label>Load from Partner Profile</label>
+              <select value={selectedPartnerId} onChange={(e) => handleApplyPartner(e.target.value)}>
+                <option value="">— select a trading partner —</option>
+                {partners.map((p) => (
+                  <option key={p.id} value={String(p.id)}>
+                    {p.label} ({p.edi_role}) — {p.api_endpoint}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
         {/* EDI Type Selection */}
         <div className="form-group">
           <label>EDI Type</label>

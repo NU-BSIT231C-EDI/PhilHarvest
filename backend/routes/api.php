@@ -75,6 +75,16 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     Route::post('/810/preview', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'preview810']);
     
     // ========================================================================
+    // TRADING PARTNER / COMPANY PROFILE MANAGEMENT
+    // ========================================================================
+
+    Route::get('/trading-partners', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'index']);
+    Route::post('/trading-partners', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'store']);
+    Route::get('/trading-partners/{tradingPartner}', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'show']);
+    Route::put('/trading-partners/{tradingPartner}', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'update']);
+    Route::delete('/trading-partners/{tradingPartner}', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'destroy']);
+
+    // ========================================================================
     // TRANSACTION MANAGEMENT ENDPOINTS
     // ========================================================================
     

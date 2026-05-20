@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import TransactionMonitor from './components/TransactionMonitor'
 import OutboundRequestBuilder from './components/OutboundRequestBuilder'
+import TradingPartnerManager from './components/TradingPartnerManager'
+import type { TradingPartner } from './components/TradingPartnerManager'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import './App.css'
 
@@ -26,6 +28,8 @@ function App() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [workflowPrefill, setWorkflowPrefill] = useState<WorkflowPrefill | null>(null)
+  const [partners, setPartners] = useState<TradingPartner[]>([])
+  const [showPartnerManager, setShowPartnerManager] = useState(false)
 
   const handleWorkflowAction = (prefill: Omit<WorkflowPrefill, 'timestamp'>) => {
     setWorkflowPrefill({ ...prefill, timestamp: Date.now() })
@@ -232,6 +236,9 @@ function App() {
         <button className="nav-btn" onClick={() => setActiveTestForm(activeTestForm === '990' ? null : '990')}>
           {activeTestForm === '990' ? 'Hide test 990' : 'Send test 990'}
         </button>
+        <button className="nav-btn" onClick={() => setShowPartnerManager((v) => !v)}>
+          {showPartnerManager ? 'Hide Partners' : 'Manage Partners'}
+        </button>
       </nav>
 
       <section className="notification-stack">
@@ -281,12 +288,23 @@ function App() {
 
       <main className="dashboard-grid">
         <ErrorBoundary>
-          <OutboundRequestBuilder onNotification={addNotification} workflowPrefill={workflowPrefill} />
+          <OutboundRequestBuilder onNotification={addNotification} workflowPrefill={workflowPrefill} partners={partners} />
         </ErrorBoundary>
         <ErrorBoundary>
           <TransactionMonitor refreshTrigger={refreshTrigger} onWorkflowAction={handleWorkflowAction} />
         </ErrorBoundary>
       </main>
+
+      {showPartnerManager && (
+        <ErrorBoundary>
+          <TradingPartnerManager
+            apiUrl={apiUrl}
+            token={token}
+            onNotification={addNotification}
+            onPartnersChange={setPartners}
+          />
+        </ErrorBoundary>
+      )}
     </div>
   )
 }
