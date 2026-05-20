@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { WorkflowPrefill } from '../App'
 
 type Direction = 'inbound' | 'outbound'
+type AckCode = 'AA' | 'RE' | 'IA'
 
 interface TransactionRecord {
   id: number
@@ -20,34 +21,229 @@ interface TransactionMonitorProps {
   onWorkflowAction?: (prefill: Omit<WorkflowPrefill, 'timestamp'>) => void
 }
 
-// ── Prefill builders ────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-function data(tx: TransactionRecord): Record<string, unknown> {
+function txData(tx: TransactionRecord): Record<string, unknown> {
   return (tx.parsed_data as Record<string, unknown> | null) ?? {}
 }
 
-function build855Prefill(tx: TransactionRecord): Record<string, unknown> {
-  const d = data(tx)
-  const lineItems = (d.line_items as Array<Record<string, unknown>> | undefined) ?? []
-  return {
-    po_number: d.po_number ?? '',
-    po_date: d.po_date ?? new Date().toISOString().slice(0, 10),
-    manufacturer_id: d.manufacturer_id ?? tx.partner_id ?? '',
-    acknowledgment_code: 'AA',
-    line_acknowledgments: lineItems.map((li) => ({
-      line_number: li.line_number ?? '1',
-      acknowledgment_code: 'AA',
-      accepted_quantity: li.quantity ?? 0,
-      quantity_uom: li.quantity_uom ?? 'EA',
-    })),
-  }
+// ── 855 Acknowledgment Panel ─────────────────────────────────────────────────
+
+interface LineAckState {
+  lineNumber: string
+  partNumber: string
+  orderedQty: number
+  qtyUom: string
+  ackCode: AckCode
+  acceptedQty: number
+  rejectedQty: number
+  rejectionReason: string
+  estimatedDeliveryDate: string
 }
 
+interface AckPanelProps {
+  transaction: TransactionRecord
+  onConfirm: (body: Record<string, unknown>) => void
+  onCancel: () => void
+}
+
+function Edi855AckPanel({ transaction, onConfirm, onCancel }: AckPanelProps) {
+  const d = txData(transaction)
+  const rawLines = (d.line_items as Array<Record<string, unknown>> | undefined) ?? []
+
+  const [lines, setLines] = useState<LineAckState[]>(
+    rawLines.map((li) => ({
+      lineNumber: String(li.line_number ?? '1'),
+      partNumber: String(li.part_number ?? li.product_id_qualifier ?? '—'),
+      orderedQty: Number(li.quantity ?? 0),
+      qtyUom: String(li.quantity_uom ?? 'EA'),
+      ackCode: 'AA',
+      acceptedQty: Number(li.quantity ?? 0),
+      rejectedQty: 0,
+      rejectionReason: '',
+      estimatedDeliveryDate: '',
+    }))
+  )
+
+  const headerAckCode: AckCode =
+    lines.every((l) => l.ackCode === 'AA') ? 'AA'
+    : lines.every((l) => l.ackCode === 'RE') ? 'RE'
+    : 'IA'
+
+  const updateLine = (index: number, patch: Partial<LineAckState>) => {
+    setLines((prev) =>
+      prev.map((l, i) => {
+        if (i !== index) return l
+        const next = { ...l, ...patch }
+        if (patch.ackCode === 'AA') {
+          next.acceptedQty = l.orderedQty
+          next.rejectedQty = 0
+          next.rejectionReason = ''
+        } else if (patch.ackCode === 'RE') {
+          next.acceptedQty = 0
+          next.rejectedQty = l.orderedQty
+        }
+        return next
+      })
+    )
+  }
+
+  const applyAll = (code: AckCode) => {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (code === 'AA') return { ...l, ackCode: 'AA', acceptedQty: l.orderedQty, rejectedQty: 0, rejectionReason: '' }
+        if (code === 'RE') return { ...l, ackCode: 'RE', acceptedQty: 0, rejectedQty: l.orderedQty }
+        return { ...l, ackCode: 'IA' }
+      })
+    )
+  }
+
+  const handleConfirm = () => {
+    const body: Record<string, unknown> = {
+      po_number: d.po_number ?? '',
+      po_date: d.po_date ?? new Date().toISOString().slice(0, 10),
+      manufacturer_id: d.manufacturer_id ?? transaction.partner_id ?? '',
+      acknowledgment_code: headerAckCode,
+      line_acknowledgments: lines.map((l) => ({
+        line_number: l.lineNumber,
+        acknowledgment_code: l.ackCode,
+        accepted_quantity: l.acceptedQty,
+        quantity_uom: l.qtyUom,
+        ...(l.rejectedQty > 0 ? { rejected_quantity: l.rejectedQty } : {}),
+        ...(l.rejectionReason ? { rejection_reason: l.rejectionReason } : {}),
+        ...(l.estimatedDeliveryDate ? { estimated_delivery_date: l.estimatedDeliveryDate } : {}),
+      })),
+    }
+    onConfirm(body)
+  }
+
+  const ackLabel: Record<AckCode, string> = { AA: 'Accept', RE: 'Reject', IA: 'Partial' }
+  const ackColor: Record<AckCode, string> = { AA: 'var(--green,#2e7d32)', RE: '#c62828', IA: '#e65100' }
+
+  return (
+    <div className="ack-panel">
+      <div className="ack-panel-header">
+        <span>
+          Build 855 for <strong>PO {String(d.po_number ?? '')}</strong>
+        </span>
+        <span className="ack-code-badge" style={{ background: ackColor[headerAckCode] }}>
+          Overall: {headerAckCode} – {ackLabel[headerAckCode]}
+        </span>
+        <button className="ack-close-btn" onClick={onCancel} title="Cancel">✕</button>
+      </div>
+
+      <div className="ack-bulk-row">
+        <span className="ack-bulk-label">Apply all lines:</span>
+        {(['AA', 'RE', 'IA'] as AckCode[]).map((code) => (
+          <button
+            key={code}
+            className="ack-bulk-btn"
+            style={{ borderColor: ackColor[code], color: ackColor[code] }}
+            onClick={() => applyAll(code)}
+          >
+            {code} – {ackLabel[code]}
+          </button>
+        ))}
+      </div>
+
+      {lines.length === 0 ? (
+        <p className="ack-no-lines">No line items found in this 850's parsed data.</p>
+      ) : (
+        <div className="ack-table-wrap">
+          <table className="ack-table">
+            <thead>
+              <tr>
+                <th>Line</th>
+                <th>Part</th>
+                <th>Ordered</th>
+                <th>Response</th>
+                <th>Accepted qty</th>
+                <th>Rejected qty</th>
+                <th>Reason</th>
+                <th>Est. delivery</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((line, i) => (
+                <tr key={line.lineNumber} className={`ack-row ack-row-${line.ackCode.toLowerCase()}`}>
+                  <td>{line.lineNumber}</td>
+                  <td>{line.partNumber}</td>
+                  <td className="ack-td-num">{line.orderedQty} {line.qtyUom}</td>
+                  <td>
+                    <select
+                      className="ack-select"
+                      value={line.ackCode}
+                      onChange={(e) => updateLine(i, { ackCode: e.target.value as AckCode })}
+                    >
+                      <option value="AA">AA – Accept</option>
+                      <option value="RE">RE – Reject</option>
+                      <option value="IA">IA – Partial</option>
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      className="ack-qty-input"
+                      type="number"
+                      min={0}
+                      max={line.orderedQty}
+                      value={line.acceptedQty}
+                      disabled={line.ackCode === 'RE'}
+                      onChange={(e) => updateLine(i, { acceptedQty: Number(e.target.value) })}
+                    />
+                  </td>
+                  <td>
+                    {line.ackCode !== 'AA' ? (
+                      <input
+                        className="ack-qty-input"
+                        type="number"
+                        min={0}
+                        value={line.rejectedQty || ''}
+                        onChange={(e) => updateLine(i, { rejectedQty: Number(e.target.value) })}
+                      />
+                    ) : '—'}
+                  </td>
+                  <td>
+                    {line.ackCode !== 'AA' ? (
+                      <input
+                        className="ack-text-input"
+                        type="text"
+                        value={line.rejectionReason}
+                        placeholder="required for RE/IA"
+                        onChange={(e) => updateLine(i, { rejectionReason: e.target.value })}
+                      />
+                    ) : '—'}
+                  </td>
+                  <td>
+                    <input
+                      className="ack-date-input"
+                      type="date"
+                      value={line.estimatedDeliveryDate}
+                      onChange={(e) => updateLine(i, { estimatedDeliveryDate: e.target.value })}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="ack-panel-footer">
+        <button className="workflow-btn ack-confirm-btn" onClick={handleConfirm}>
+          Pre-fill builder with this 855 →
+        </button>
+        <button className="ack-cancel-link" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+// ── Other prefill builders ───────────────────────────────────────────────────
+
 function build204Prefill(tx: TransactionRecord): Record<string, unknown> {
-  const d = data(tx)
+  const d = txData(tx)
   const poNumber = (d.po_number as string | undefined) ?? ''
   const today = new Date().toISOString().slice(0, 10)
-  const deliveryDate = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10)
   return {
     load_tender_id: `LOAD-${poNumber}`,
     shipper_company_name: 'PhilHarvest Inc.',
@@ -56,12 +252,12 @@ function build204Prefill(tx: TransactionRecord): Record<string, unknown> {
     ship_to_address: d.ship_to_address ?? { street: '', city: '', state: '', postal_code: '', country: '' },
     shipments: [{ shipment_number: `SHIP-${poNumber}`, weight: 0, weight_uom: 'LB', commodity: 'Agricultural Products' }],
     pickup_date: today,
-    delivery_date: deliveryDate,
+    delivery_date: new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10),
   }
 }
 
 function build856Prefill(tx: TransactionRecord): Record<string, unknown> {
-  const d = data(tx)
+  const d = txData(tx)
   const loadTenderId = (d.load_tender_id as string | undefined) ?? ''
   const poNumber = loadTenderId.replace(/^LOAD-/, '') || loadTenderId
   const today = new Date().toISOString().slice(0, 10)
@@ -78,7 +274,7 @@ function build856Prefill(tx: TransactionRecord): Record<string, unknown> {
 }
 
 function build810Prefill(tx: TransactionRecord): Record<string, unknown> {
-  const d = data(tx)
+  const d = txData(tx)
   const today = new Date().toISOString().slice(0, 10)
   const boxes = (d.boxes as Array<Record<string, unknown>> | undefined) ?? []
   const lineItems = boxes.flatMap((box) => {
@@ -103,17 +299,21 @@ function build810Prefill(tx: TransactionRecord): Record<string, unknown> {
     bill_to_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
     ship_from_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
     total_amount: 0,
-    line_items: lineItems.length > 0 ? lineItems : [
-      { line_number: '1', po_line_number: '1', part_number: '', part_description: '', invoiced_quantity: 0, quantity_uom: 'EA', unit_price: 0 },
-    ],
+    line_items:
+      lineItems.length > 0
+        ? lineItems
+        : [{ line_number: '1', po_line_number: '1', part_number: '', part_description: '', invoiced_quantity: 0, quantity_uom: 'EA', unit_price: 0 }],
   }
 }
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowAction }: TransactionMonitorProps) {
   const [transactions, setTransactions] = useState<TransactionRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [ackingId, setAckingId] = useState<number | null>(null)
 
   useEffect(() => {
     void fetchTransactions()
@@ -121,11 +321,7 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
 
   useEffect(() => {
     if (!autoRefresh) return
-
-    const interval = setInterval(() => {
-      void fetchTransactions()
-    }, 3000) // Refresh every 3 seconds
-
+    const interval = setInterval(() => void fetchTransactions(), 3000)
     return () => clearInterval(interval)
   }, [autoRefresh])
 
@@ -134,26 +330,23 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
       setLoading(true)
       const apiUrl = import.meta.env.VITE_API_URL ?? ''
       const token = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
-
       const response = await fetch(`${apiUrl}/api/edi/transactions`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       })
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = await response.json()
       setTransactions(Array.isArray(data) ? data : [])
       setError(null)
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      setError(`Failed to fetch transactions: ${message}`)
+      setError(`Failed to fetch transactions: ${err instanceof Error ? err.message : 'Unknown error'}`)
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleAckConfirm = (tx: TransactionRecord, body: Record<string, unknown>) => {
+    onWorkflowAction?.({ ediType: '855', body, sourceDescription: `850 #${tx.id}` })
+    setAckingId(null)
   }
 
   return (
@@ -165,11 +358,7 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-            />
+            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
             Auto-refresh
           </label>
           <button onClick={() => void fetchTransactions()} className="refresh-btn">
@@ -180,29 +369,22 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
 
       {loading ? <div className="loading">Loading transactions...</div> : null}
       {error ? <div className="error-banner">{error}</div> : null}
-
-      {!loading && transactions.length === 0 ? (
-        <p className="no-data">No transactions yet.</p>
-      ) : null}
+      {!loading && transactions.length === 0 ? <p className="no-data">No transactions yet.</p> : null}
 
       {!loading && transactions.length > 0 ? (
         <div className="monitor-list">
           {transactions.map((transaction) => (
             <article key={transaction.id} className="monitor-card">
               <div className="monitor-card-top">
-                <span className={`direction-pill direction-${transaction.direction}`}>
-                  {transaction.direction}
-                </span>
+                <span className={`direction-pill direction-${transaction.direction}`}>{transaction.direction}</span>
                 <span className="type-pill">{transaction.transaction_type}</span>
                 <span className="status-pill">{transaction.status}</span>
               </div>
               <p className="monitor-meta">
-                Partner: <strong>{transaction.partner_id}</strong> | Control:{' '}
-                <code>{transaction.control_number}</code>
+                Partner: <strong>{transaction.partner_id}</strong> | Control: <code>{transaction.control_number}</code>
               </p>
               <p className="monitor-meta">
-                Received/Sent:{' '}
-                {transaction.created_at ? new Date(transaction.created_at).toLocaleString() : 'N/A'}
+                Received/Sent: {transaction.created_at ? new Date(transaction.created_at).toLocaleString() : 'N/A'}
               </p>
               <details className="monitor-details">
                 <summary>Payload preview</summary>
@@ -212,19 +394,29 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
                 <summary>Parsed data</summary>
                 <pre>{JSON.stringify(transaction.parsed_data ?? {}, null, 2)}</pre>
               </details>
-              {onWorkflowAction && transaction.status !== 'FAILED' && (
+
+              {/* 855 ACK panel — inline when open */}
+              {ackingId === transaction.id && (
+                <Edi855AckPanel
+                  transaction={transaction}
+                  onConfirm={(body) => handleAckConfirm(transaction, body)}
+                  onCancel={() => setAckingId(null)}
+                />
+              )}
+
+              {/* Workflow action buttons */}
+              {onWorkflowAction && transaction.status !== 'FAILED' && ackingId !== transaction.id && (
                 <div className="workflow-actions">
                   {transaction.transaction_type === '850' && transaction.direction === 'inbound' && (
                     <>
-                      <button
-                        className="workflow-btn"
-                        onClick={() => onWorkflowAction({ ediType: '855', body: build855Prefill(transaction), sourceDescription: `850 #${transaction.id}` })}
-                      >
+                      <button className="workflow-btn" onClick={() => setAckingId(transaction.id)}>
                         → Send 855 Ack
                       </button>
                       <button
                         className="workflow-btn"
-                        onClick={() => onWorkflowAction({ ediType: '204', body: build204Prefill(transaction), sourceDescription: `850 #${transaction.id}` })}
+                        onClick={() =>
+                          onWorkflowAction({ ediType: '204', body: build204Prefill(transaction), sourceDescription: `850 #${transaction.id}` })
+                        }
                       >
                         → Send 204 Load Tender
                       </button>
@@ -233,7 +425,9 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
                   {transaction.transaction_type === '990' && transaction.direction === 'inbound' && (
                     <button
                       className="workflow-btn"
-                      onClick={() => onWorkflowAction({ ediType: '856', body: build856Prefill(transaction), sourceDescription: `990 #${transaction.id}` })}
+                      onClick={() =>
+                        onWorkflowAction({ ediType: '856', body: build856Prefill(transaction), sourceDescription: `990 #${transaction.id}` })
+                      }
                     >
                       → Send 856 ASN
                     </button>
@@ -241,7 +435,9 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
                   {transaction.transaction_type === '856' && transaction.direction === 'outbound' && (
                     <button
                       className="workflow-btn"
-                      onClick={() => onWorkflowAction({ ediType: '810', body: build810Prefill(transaction), sourceDescription: `856 #${transaction.id}` })}
+                      onClick={() =>
+                        onWorkflowAction({ ediType: '810', body: build810Prefill(transaction), sourceDescription: `856 #${transaction.id}` })
+                      }
                     >
                       → Send 810 Invoice
                     </button>

@@ -292,6 +292,172 @@ body {
   border: 1px solid var(--blue);
 }
 
+/* ── 855 ACK Panel ──────────────────────────────────────────────────────── */
+
+.ack-panel {
+  margin-top: 14px;
+  border: 1px solid var(--blue);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f8fbff;
+}
+
+.ack-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--blue-soft);
+  border-bottom: 1px solid var(--blue);
+  flex-wrap: wrap;
+}
+
+.ack-panel-header span:first-child {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.ack-code-badge {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.05em;
+}
+
+.ack-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: var(--muted);
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.ack-close-btn:hover { color: var(--ink); }
+
+.ack-bulk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.ack-bulk-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.ack-bulk-btn {
+  padding: 3px 10px;
+  font-size: 0.78rem;
+  border-radius: 999px;
+  border: 1px solid;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.ack-bulk-btn:hover { opacity: 0.7; }
+
+.ack-no-lines {
+  padding: 16px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.ack-table-wrap {
+  overflow-x: auto;
+  padding: 0 0 4px;
+}
+
+.ack-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.ack-table th {
+  padding: 7px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.ack-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.ack-table tbody tr:last-child td { border-bottom: none; }
+
+.ack-row-aa { background: #f6fff6; }
+.ack-row-re { background: #fff6f6; }
+.ack-row-ia { background: #fff8f0; }
+
+.ack-td-num { white-space: nowrap; }
+
+.ack-select,
+.ack-qty-input,
+.ack-text-input,
+.ack-date-input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  background: #fff;
+  color: var(--ink);
+}
+
+.ack-qty-input { width: 70px; }
+.ack-text-input { width: 130px; }
+.ack-date-input { width: 130px; }
+.ack-select { min-width: 110px; }
+
+.ack-select:disabled,
+.ack-qty-input:disabled {
+  background: #f0f0f0;
+  color: var(--muted);
+}
+
+.ack-panel-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--blue-soft);
+}
+
+.ack-confirm-btn {
+  background: var(--blue) !important;
+  color: #fff !important;
+  border-color: var(--blue) !important;
+  font-size: 0.85rem;
+  padding: 6px 16px;
+}
+
+.ack-cancel-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-family: inherit;
+  padding: 0;
+}
+
+.ack-cancel-link:hover { color: var(--ink); }
+
 .monitor-card-top {
   display: flex;
   gap: 8px;

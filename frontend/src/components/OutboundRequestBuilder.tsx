@@ -378,7 +378,7 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
               placeholder="/api/edi/855/send  or  https://partner.com/api/edi/inbound"
             />
             {isAbsoluteEndpoint && (
-              <p className="form-help" style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--blue)' }}>
+              <p className="form-help" style={{ margin: '4px 0 0', fontSize: '0.2rem', color: 'var(--blue)' }}>
                 External URL — request will be relayed via PhilHarvest backend (no CORS issues)
               </p>
             )}
