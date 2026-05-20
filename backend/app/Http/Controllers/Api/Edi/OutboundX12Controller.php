@@ -277,32 +277,41 @@ class OutboundX12Controller
     {
         try {
             $validated = $request->validate([
-                'load_tender_id' => 'required|string',
-                'shipper_company_name' => 'required|string',
-                'shipper_address' => 'required|array',
-                'carrier_code' => 'required|string',
-                'ship_to_address' => 'required|array',
-                'shipments' => 'required|array',
-                'pickup_date' => 'nullable|date',
-                'delivery_date' => 'nullable|date',
+                'load_tender_id'                  => 'required|string',
+                'shipper_company_name'            => 'required|string',
+                'shipper_address'                 => 'required|array',
+                'carrier_code'                    => 'required|string',
+                'ship_to_address'                 => 'required|array',
+                'shipments'                       => 'required|array|min:1',
+                'shipments.*.shipment_number'     => 'required|string',
+                'shipments.*.weight'              => 'nullable|numeric',
+                'shipments.*.weight_uom'          => 'nullable|string',
+                'shipments.*.commodity'           => 'nullable|string',
+                'pickup_date'                     => 'nullable|date',
+                'delivery_date'                   => 'nullable|date',
             ]);
 
-            // Build DTO
             $dto = new \App\DTOs\Edi\Edi204MotorCarrierLoadTenderDto(
-                controlNumber: uniqid('PH204_'),
-                loadTenderId: $validated['load_tender_id'],
+                controlNumber:      uniqid('PH204_'),
+                loadTenderId:       $validated['load_tender_id'],
                 shipperCompanyName: $validated['shipper_company_name'],
-                shipperAddress: $validated['shipper_address'],
-                carrierCode: $validated['carrier_code'],
-                shipToAddress: $validated['ship_to_address'],
-                pickupDate: $validated['pickup_date'] ?? date('Ymd'),
-                deliveryDate: $validated['delivery_date'] ?? null,
+                shipperAddress:     $validated['shipper_address'],
+                carrierCode:        $validated['carrier_code'],
+                shipToAddress:      $validated['ship_to_address'],
+                pickupDate:         $validated['pickup_date'] ?? date('Y-m-d'),
+                deliveryDate:       $validated['delivery_date'] ?? null,
             );
 
-            // Add shipments and line items
-            // (Implementation depends on shipment data structure in request)
+            foreach ($validated['shipments'] as $s) {
+                $dto->addShipment(new \App\DTOs\Edi\Edi204ShipmentDto(
+                    shipmentNumber: $s['shipment_number'],
+                    shipmentType:   $s['shipment_type'] ?? 'TL',
+                    weight:         isset($s['weight']) ? (float)$s['weight'] : null,
+                    weightUom:      $s['weight_uom'] ?? 'LB',
+                    commodity:      $s['commodity'] ?? null,
+                ));
+            }
 
-            // Generate X12 string
             $x12Payload = $this->edi204Generator->generate($dto);
 
             // Transmit to logistics partner
@@ -606,26 +615,40 @@ class OutboundX12Controller
     {
         try {
             $validated = $request->validate([
-                'load_tender_id'       => 'required|string',
-                'shipper_company_name' => 'required|string',
-                'shipper_address'      => 'required|array',
-                'carrier_code'         => 'required|string',
-                'ship_to_address'      => 'required|array',
-                'shipments'            => 'required|array',
-                'pickup_date'          => 'nullable|date',
-                'delivery_date'        => 'nullable|date',
+                'load_tender_id'              => 'required|string',
+                'shipper_company_name'        => 'required|string',
+                'shipper_address'             => 'required|array',
+                'carrier_code'               => 'required|string',
+                'ship_to_address'            => 'required|array',
+                'shipments'                  => 'required|array|min:1',
+                'shipments.*.shipment_number' => 'required|string',
+                'shipments.*.weight'          => 'nullable|numeric',
+                'shipments.*.weight_uom'      => 'nullable|string',
+                'shipments.*.commodity'       => 'nullable|string',
+                'pickup_date'                => 'nullable|date',
+                'delivery_date'              => 'nullable|date',
             ]);
 
             $dto = new \App\DTOs\Edi\Edi204MotorCarrierLoadTenderDto(
-                controlNumber:       uniqid('PREV204_'),
-                loadTenderId:        $validated['load_tender_id'],
-                shipperCompanyName:  $validated['shipper_company_name'],
-                shipperAddress:      $validated['shipper_address'],
-                carrierCode:         $validated['carrier_code'],
-                shipToAddress:       $validated['ship_to_address'],
-                pickupDate:          $validated['pickup_date'] ?? date('Ymd'),
-                deliveryDate:        $validated['delivery_date'] ?? null,
+                controlNumber:      uniqid('PREV204_'),
+                loadTenderId:       $validated['load_tender_id'],
+                shipperCompanyName: $validated['shipper_company_name'],
+                shipperAddress:     $validated['shipper_address'],
+                carrierCode:        $validated['carrier_code'],
+                shipToAddress:      $validated['ship_to_address'],
+                pickupDate:         $validated['pickup_date'] ?? date('Y-m-d'),
+                deliveryDate:       $validated['delivery_date'] ?? null,
             );
+
+            foreach ($validated['shipments'] as $s) {
+                $dto->addShipment(new \App\DTOs\Edi\Edi204ShipmentDto(
+                    shipmentNumber: $s['shipment_number'],
+                    shipmentType:   $s['shipment_type'] ?? 'TL',
+                    weight:         isset($s['weight']) ? (float)$s['weight'] : null,
+                    weightUom:      $s['weight_uom'] ?? 'LB',
+                    commodity:      $s['commodity'] ?? null,
+                ));
+            }
 
             $x12Payload = $this->edi204Generator->generate($dto);
 
