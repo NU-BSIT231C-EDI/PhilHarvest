@@ -12,16 +12,20 @@ use Illuminate\Support\Facades\Config;
  *
  * Structure:
  *   ISA / GS / ST
- *   B2   — beginning segment (carrier SCAC, load tender ID, payment method PP)
+ *   B2   — beginning segment (load tender ID, payment method PP)
  *   B2A  — transaction set purpose (00=Original) and transportation type (LT=Load Tender)
+ *   MS3  — carrier routing (SCAC, routing sequence R, transport method M)
  *   G62  — pickup date (qualifier 10 = Requested Ship Date)
  *   G62  — delivery date (qualifier 02), when present
+ *   L11*PO — purchase order reference, when present
  *   N1*SH loop — shipper at header level
  *   S5*1*PU loop — pickup stop
  *     N1*SF + N3 + N4 — shipper party at this stop
- *     LX / L5 / AT8 / L11 — one set per shipment
+ *     LX / L5 / AT8 / L11*SI — one set per shipment
  *   S5*2*SO loop — delivery stop
  *     N1*ST + N3 + N4 — consignee party
+ *   L3  — total weight and piece count, when present
+ *   NTE — special instructions, when present
  *   SE / GE / IEA
  */
 class Edi204Generator
@@ -48,6 +52,11 @@ class Edi204Generator
         $segments[] = $this->buildB2($dto);
         $segments[] = "B2A{$this->fieldSeparator}00{$this->fieldSeparator}LT";
 
+        // MS3 — Carrier routing (SCAC goes here, not in B2)
+        if (!empty($dto->carrierCode)) {
+            $segments[] = "MS3{$this->fieldSeparator}{$dto->carrierCode}{$this->fieldSeparator}R{$this->fieldSeparator}{$this->fieldSeparator}M";
+        }
+
         // G62 — Pickup date (qualifier 10 = Requested Ship Date, 2-char)
         $pickupDate = $this->formatDateForX12($dto->pickupDate ?? null);
         $segments[] = "G62{$this->fieldSeparator}10{$this->fieldSeparator}{$pickupDate}";
@@ -56,6 +65,11 @@ class Edi204Generator
         if (!empty($dto->deliveryDate)) {
             $deliveryDate = $this->formatDateForX12($dto->deliveryDate);
             $segments[] = "G62{$this->fieldSeparator}02{$this->fieldSeparator}{$deliveryDate}";
+        }
+
+        // L11*PO — Purchase Order reference at header level
+        if (!empty($dto->poNumber)) {
+            $segments[] = "L11{$this->fieldSeparator}{$dto->poNumber}{$this->fieldSeparator}PO";
         }
 
         // N1*SH — Shipper (header-level party identification)
@@ -100,6 +114,17 @@ class Edi204Generator
         if (!empty($dto->shipToAddress)) {
             $segments[] = $this->buildN3($dto->shipToAddress);
             $segments[] = $this->buildN4($dto->shipToAddress);
+        }
+
+        // L3 — Total weight and charges (appears after all stop loops)
+        if (!empty($dto->shipmentWeight)) {
+            $pieceCount = count($dto->shipments);
+            $segments[] = "L3{$this->fieldSeparator}{$dto->shipmentWeight}{$this->fieldSeparator}G{$this->fieldSeparator}{$this->fieldSeparator}FR{$this->fieldSeparator}0{$this->fieldSeparator}0{$this->fieldSeparator}0{$this->fieldSeparator}{$this->fieldSeparator}{$this->fieldSeparator}{$pieceCount}";
+        }
+
+        // NTE — Special handling instructions
+        if (!empty($dto->specialInstructions)) {
+            $segments[] = "NTE{$this->fieldSeparator}GEN{$this->fieldSeparator}" . substr($dto->specialInstructions, 0, 80);
         }
 
         // SE — counts ST through SE inclusive (excludes ISA and GS)
@@ -150,19 +175,18 @@ class Edi204Generator
     }
 
     /**
-     * B2-01: blank (Shipment Method of Payment — omitted; declared via B2-06)
-     * B2-02: Carrier code
-     * B2-03: blank (Bill of Lading Number)
-     * B2-04: Shipment Identification Number (load tender ID)
-     * B2-05: blank
-     * B2-06: PP (Prepaid)
+     * B2-01: blank (Shipment Method of Payment — omitted; declared via B2-04)
+     * B2-02: Load Tender ID (Shipment Identification Number)
+     * B2-03: blank
+     * B2-04: PP (Prepaid)
      *
-     * Produces: B2**{carrierCode}**{loadTenderId}**PP
+     * SCAC carrier code is emitted separately in MS3, not here.
+     * Produces: B2**{loadTenderId}**PP
      */
     private function buildB2(Edi204MotorCarrierLoadTenderDto $dto): string
     {
         $fs = $this->fieldSeparator;
-        return "B2{$fs}{$fs}{$dto->carrierCode}{$fs}{$fs}{$dto->loadTenderId}{$fs}{$fs}PP";
+        return "B2{$fs}{$fs}{$dto->loadTenderId}{$fs}{$fs}PP";
     }
 
     private function buildN3(array $address): string
