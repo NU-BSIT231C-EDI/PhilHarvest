@@ -329,7 +329,11 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
         setX12Preview(data.x12_payload ? formatX12(data.x12_payload) : 'No X12 generated')
         onNotification('success', 'X12 Preview Generated', 'Review below before sending')
       } else {
-        onNotification('error', 'Preview failed', `HTTP ${response.status}`)
+        const errData = await response.json().catch(() => null)
+        const errMsg = errData?.message
+          ? (typeof errData.message === 'string' ? errData.message : JSON.stringify(errData.message))
+          : `HTTP ${response.status}`
+        onNotification('error', `Preview failed (${response.status})`, errMsg)
       }
     } catch (error) {
       onNotification('error', 'Preview failed', error instanceof Error ? error.message : 'Invalid JSON')
