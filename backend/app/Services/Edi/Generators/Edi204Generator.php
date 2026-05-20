@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Config;
  * Structure:
  *   ISA / GS / ST
  *   BX   — transaction purpose, payment method, shipment type, load ID, carrier SCAC
- *   G62  — pickup date (qualifier 137)
+ *   G62  — pickup date (qualifier 10 = Requested Ship Date)
  *   G62  — delivery date (qualifier 02), when present
  *   N1*SH loop — shipper at header level
  *   S5*1*PU loop — pickup stop
@@ -46,9 +46,9 @@ class Edi204Generator
         // BX — Beginning segment
         $segments[] = $this->buildBX($dto);
 
-        // G62 — Pickup date (qualifier 137 = Estimated Departure)
+        // G62 — Pickup date (qualifier 10 = Requested Ship Date, 2-char)
         $pickupDate = $this->formatDateForX12($dto->pickupDate ?? null);
-        $segments[] = "G62{$this->fieldSeparator}137{$this->fieldSeparator}{$pickupDate}";
+        $segments[] = "G62{$this->fieldSeparator}10{$this->fieldSeparator}{$pickupDate}";
 
         // G62 — Delivery date (qualifier 02 = Delivery Requested), when set
         if (!empty($dto->deliveryDate)) {
