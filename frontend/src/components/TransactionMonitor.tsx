@@ -318,11 +318,14 @@ function build810Prefill(tx: TransactionRecord): Record<string, unknown> {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowAction }: TransactionMonitorProps) {
+  const PAGE_SIZE = 10
+
   const [transactions, setTransactions] = useState<TransactionRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [ackingId, setAckingId] = useState<number | null>(null)
+  const [page, setPage] = useState(1)
 
   useEffect(() => {
     void fetchTransactions()
@@ -358,6 +361,10 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
     setAckingId(null)
   }
 
+  const totalPages = Math.max(1, Math.ceil(transactions.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pagedTransactions = transactions.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
   return (
     <section className="monitor-panel">
       <div className="monitor-header">
@@ -382,7 +389,7 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
 
       {!loading && transactions.length > 0 ? (
         <div className="monitor-list">
-          {transactions.map((transaction) => (
+          {pagedTransactions.map((transaction) => (
             <article key={transaction.id} className="monitor-card">
               <div className="monitor-card-top">
                 <span className={`direction-pill direction-${transaction.direction}`}>{transaction.direction}</span>
@@ -455,6 +462,27 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
               )}
             </article>
           ))}
+          {totalPages > 1 && (
+            <div className="pagination">
+              <button
+                className="page-btn"
+                disabled={page === 1}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                ← Prev
+              </button>
+              <span className="page-info">
+                Page {page} of {totalPages} &nbsp;·&nbsp; {transactions.length} total
+              </span>
+              <button
+                className="page-btn"
+                disabled={page === totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </div>
       ) : null}
     </section>

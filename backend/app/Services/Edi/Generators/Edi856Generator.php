@@ -95,7 +95,7 @@ class Edi856Generator
         // IEA - Interchange Control Trailer
         $segments[] = "IEA{$this->fieldSeparator}1{$this->fieldSeparator}{$this->controlNumber}";
 
-        return implode($this->segmentTerminator, $segments) . $this->segmentTerminator;
+        return implode($this->segmentTerminator . "\n", $segments) . $this->segmentTerminator . "\n";
     }
 
     /**
