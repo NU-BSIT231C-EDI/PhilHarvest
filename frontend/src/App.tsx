@@ -11,6 +11,13 @@ interface Notification {
   message: string
 }
 
+export interface WorkflowPrefill {
+  ediType: '855' | '810' | '856' | '204'
+  body: Record<string, unknown>
+  sourceDescription: string
+  timestamp: number
+}
+
 type TestFormType = '850' | '855' | '990' | null
 
 function App() {
@@ -18,6 +25,11 @@ function App() {
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [workflowPrefill, setWorkflowPrefill] = useState<WorkflowPrefill | null>(null)
+
+  const handleWorkflowAction = (prefill: Omit<WorkflowPrefill, 'timestamp'>) => {
+    setWorkflowPrefill({ ...prefill, timestamp: Date.now() })
+  }
 
   const apiUrl = import.meta.env.VITE_API_URL ?? ''
   const token = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
@@ -269,10 +281,10 @@ function App() {
 
       <main className="dashboard-grid">
         <ErrorBoundary>
-          <OutboundRequestBuilder onNotification={addNotification} />
+          <OutboundRequestBuilder onNotification={addNotification} workflowPrefill={workflowPrefill} />
         </ErrorBoundary>
         <ErrorBoundary>
-          <TransactionMonitor refreshTrigger={refreshTrigger} />
+          <TransactionMonitor refreshTrigger={refreshTrigger} onWorkflowAction={handleWorkflowAction} />
         </ErrorBoundary>
       </main>
     </div>

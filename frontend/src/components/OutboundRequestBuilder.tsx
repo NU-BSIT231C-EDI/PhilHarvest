@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import type { WorkflowPrefill } from '../App'
 
 interface RequestConfig {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE'
@@ -17,9 +18,10 @@ interface Notification {
 
 interface OutboundRequestBuilderProps {
   onNotification: (type: Notification['type'], title: string, message: string) => void
+  workflowPrefill?: WorkflowPrefill | null
 }
 
-export default function OutboundRequestBuilder({ onNotification }: OutboundRequestBuilderProps) {
+export default function OutboundRequestBuilder({ onNotification, workflowPrefill }: OutboundRequestBuilderProps) {
   const apiUrl = import.meta.env.VITE_API_URL ?? ''
   const philHarvestToken = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
 
@@ -132,6 +134,17 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
   const [isSendingX12, setIsSendingX12] = useState(false)
   const [x12Preview, setX12Preview] = useState<string | null>(null)
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false)
+
+  useEffect(() => {
+    if (!workflowPrefill) return
+    setConfig((prev) => ({
+      ...prev,
+      ediType: workflowPrefill.ediType,
+      endpoint: philHarvestEndpoints[workflowPrefill.ediType],
+      body: JSON.stringify(workflowPrefill.body, null, 2),
+    }))
+    setX12Preview(null)
+  }, [workflowPrefill])
 
   const isAbsoluteEndpoint =
     config.endpoint.startsWith('http://') || config.endpoint.startsWith('https://')
@@ -314,6 +327,12 @@ export default function OutboundRequestBuilder({ onNotification }: OutboundReque
         <h2>Outbound EDI Request Builder</h2>
         <p>Generate and send EDI documents to any trading partner</p>
       </div>
+
+      {workflowPrefill && (
+        <div className="workflow-source-banner">
+          Pre-filled from <strong>{workflowPrefill.sourceDescription}</strong> — review fields then send.
+        </div>
+      )}
 
       <form onSubmit={handleSend} className="request-form">
         {/* EDI Type Selection */}

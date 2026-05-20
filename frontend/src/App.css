@@ -255,6 +255,43 @@ body {
   background: #fff;
 }
 
+.workflow-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.workflow-btn {
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+}
+
+.workflow-btn:hover {
+  background: var(--blue);
+  color: #fff;
+}
+
+.workflow-source-banner {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 0.88rem;
+  border: 1px solid var(--blue);
+}
+
 .monitor-card-top {
   display: flex;
   gap: 8px;

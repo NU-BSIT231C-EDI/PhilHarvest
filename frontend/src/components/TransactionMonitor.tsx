@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { WorkflowPrefill } from '../App'
 
 type Direction = 'inbound' | 'outbound'
 
@@ -16,9 +17,99 @@ interface TransactionRecord {
 
 interface TransactionMonitorProps {
   refreshTrigger?: number
+  onWorkflowAction?: (prefill: Omit<WorkflowPrefill, 'timestamp'>) => void
 }
 
-export default function TransactionMonitor({ refreshTrigger = 0 }: TransactionMonitorProps) {
+// ── Prefill builders ────────────────────────────────────────────────────────
+
+function data(tx: TransactionRecord): Record<string, unknown> {
+  return (tx.parsed_data as Record<string, unknown> | null) ?? {}
+}
+
+function build855Prefill(tx: TransactionRecord): Record<string, unknown> {
+  const d = data(tx)
+  const lineItems = (d.line_items as Array<Record<string, unknown>> | undefined) ?? []
+  return {
+    po_number: d.po_number ?? '',
+    po_date: d.po_date ?? new Date().toISOString().slice(0, 10),
+    manufacturer_id: d.manufacturer_id ?? tx.partner_id ?? '',
+    acknowledgment_code: 'AA',
+    line_acknowledgments: lineItems.map((li) => ({
+      line_number: li.line_number ?? '1',
+      acknowledgment_code: 'AA',
+      accepted_quantity: li.quantity ?? 0,
+      quantity_uom: li.quantity_uom ?? 'EA',
+    })),
+  }
+}
+
+function build204Prefill(tx: TransactionRecord): Record<string, unknown> {
+  const d = data(tx)
+  const poNumber = (d.po_number as string | undefined) ?? ''
+  const today = new Date().toISOString().slice(0, 10)
+  const deliveryDate = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10)
+  return {
+    load_tender_id: `LOAD-${poNumber}`,
+    shipper_company_name: 'PhilHarvest Inc.',
+    shipper_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
+    carrier_code: 'YOUR_CARRIER_CODE',
+    ship_to_address: d.ship_to_address ?? { street: '', city: '', state: '', postal_code: '', country: '' },
+    shipments: [{ shipment_number: `SHIP-${poNumber}`, weight: 0, weight_uom: 'LB', commodity: 'Agricultural Products' }],
+    pickup_date: today,
+    delivery_date: deliveryDate,
+  }
+}
+
+function build856Prefill(tx: TransactionRecord): Record<string, unknown> {
+  const d = data(tx)
+  const loadTenderId = (d.load_tender_id as string | undefined) ?? ''
+  const poNumber = loadTenderId.replace(/^LOAD-/, '') || loadTenderId
+  const today = new Date().toISOString().slice(0, 10)
+  return {
+    asn_number: `ASN-${today}-001`,
+    po_number: poNumber,
+    po_date: today,
+    manufacturer_id: tx.partner_id ?? '',
+    ship_date: today,
+    ship_from_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
+    ship_to_address: { street: '', city: '', state: '', postal_code: '', country: '' },
+    boxes: [{ box_number: '1', weight: 0, weight_uom: 'LB', line_items: [] }],
+  }
+}
+
+function build810Prefill(tx: TransactionRecord): Record<string, unknown> {
+  const d = data(tx)
+  const today = new Date().toISOString().slice(0, 10)
+  const boxes = (d.boxes as Array<Record<string, unknown>> | undefined) ?? []
+  const lineItems = boxes.flatMap((box) => {
+    const items = (box.line_items as Array<Record<string, unknown>> | undefined) ?? []
+    return items.map((li) => ({
+      line_number: li.line_number ?? '1',
+      po_line_number: li.line_number ?? '1',
+      part_number: li.item_id ?? '',
+      part_description: li.item_id ?? '',
+      invoiced_quantity: li.shipped_quantity ?? 0,
+      quantity_uom: li.quantity_uom ?? 'EA',
+      unit_price: 0,
+    }))
+  })
+  return {
+    invoice_number: `INV-${today.replace(/-/g, '')}-001`,
+    invoice_date: today,
+    po_number: d.po_number ?? '',
+    po_date: d.po_date ?? today,
+    manufacturer_id: d.manufacturer_id ?? tx.partner_id ?? '',
+    bill_to_name: 'PhilHarvest Inc.',
+    bill_to_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
+    ship_from_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
+    total_amount: 0,
+    line_items: lineItems.length > 0 ? lineItems : [
+      { line_number: '1', po_line_number: '1', part_number: '', part_description: '', invoiced_quantity: 0, quantity_uom: 'EA', unit_price: 0 },
+    ],
+  }
+}
+
+export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowAction }: TransactionMonitorProps) {
   const [transactions, setTransactions] = useState<TransactionRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -121,6 +212,42 @@ export default function TransactionMonitor({ refreshTrigger = 0 }: TransactionMo
                 <summary>Parsed data</summary>
                 <pre>{JSON.stringify(transaction.parsed_data ?? {}, null, 2)}</pre>
               </details>
+              {onWorkflowAction && transaction.status !== 'FAILED' && (
+                <div className="workflow-actions">
+                  {transaction.transaction_type === '850' && transaction.direction === 'inbound' && (
+                    <>
+                      <button
+                        className="workflow-btn"
+                        onClick={() => onWorkflowAction({ ediType: '855', body: build855Prefill(transaction), sourceDescription: `850 #${transaction.id}` })}
+                      >
+                        → Send 855 Ack
+                      </button>
+                      <button
+                        className="workflow-btn"
+                        onClick={() => onWorkflowAction({ ediType: '204', body: build204Prefill(transaction), sourceDescription: `850 #${transaction.id}` })}
+                      >
+                        → Send 204 Load Tender
+                      </button>
+                    </>
+                  )}
+                  {transaction.transaction_type === '990' && transaction.direction === 'inbound' && (
+                    <button
+                      className="workflow-btn"
+                      onClick={() => onWorkflowAction({ ediType: '856', body: build856Prefill(transaction), sourceDescription: `990 #${transaction.id}` })}
+                    >
+                      → Send 856 ASN
+                    </button>
+                  )}
+                  {transaction.transaction_type === '856' && transaction.direction === 'outbound' && (
+                    <button
+                      className="workflow-btn"
+                      onClick={() => onWorkflowAction({ ediType: '810', body: build810Prefill(transaction), sourceDescription: `856 #${transaction.id}` })}
+                    >
+                      → Send 810 Invoice
+                    </button>
+                  )}
+                </div>
+              )}
             </article>
           ))}
         </div>
