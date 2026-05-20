@@ -119,12 +119,18 @@ class OutboundEdiTransmissionService
 
         for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
             try {
+                $bodyFormat  = $partnerConfig['body_format'] ?? 'raw';
+                $contentType = $partnerConfig['content_type'] ?? 'application/x-edi';
+                $body = $bodyFormat === 'json_edi'
+                    ? json_encode(['edi' => $transaction->raw_payload])
+                    : $transaction->raw_payload;
+
                 $response = $this->sendRequest(
                     $endpoint,
-                    $transaction->raw_payload,
+                    $body,
                     $partnerConfig['authentication'],
                     $partnerConfig['timeout'] ?? 30,
-                    $partnerConfig['content_type'] ?? 'application/x-edi'
+                    $contentType
                 );
 
                 $transaction->update([
