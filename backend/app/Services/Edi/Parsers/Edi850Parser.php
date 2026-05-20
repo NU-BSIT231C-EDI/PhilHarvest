@@ -40,17 +40,30 @@ class Edi850Parser
 
             $manufacturerInfo = $this->parseManufacturerInfo($n1Segments);
 
+            // Extract buyer company name from N1*BY (Buying Party)
+            $buyerN1 = null;
+            foreach ($n1Segments as $n1) {
+                if (($n1[1] ?? '') === 'BY') {
+                    $buyerN1 = $n1;
+                    break;
+                }
+            }
+            $buyerCompanyName = (isset($buyerN1[2]) && $buyerN1[2] !== '') ? $buyerN1[2] : null;
+
             $dto = new Edi850PurchaseOrderDto(
-                controlNumber:   $this->extractControlNumber(),
-                poNumber:        $poNumber,
-                poDate:          $poDate,
-                manufacturerId:  $manufacturerInfo['id'],
+                controlNumber:    $this->extractControlNumber(),
+                poNumber:         $poNumber,
+                poDate:           $poDate,
+                manufacturerId:   $manufacturerInfo['id'],
                 manufacturerName: $manufacturerInfo['name'],
-                shippingDate:    $this->parseDateFromDTMList($dtmSegments, '011'),
-                deliveryDate:    $this->parseDateFromDTMList($dtmSegments, '002'),
-                currency:        $this->getCurrency(),
-                shipToAddress:   $this->parseAddressBlock('ST'),
-                billToAddress:   $this->parseAddressBlock('BT'),
+                shippingDate:     $this->parseDateFromDTMList($dtmSegments, '011'),
+                deliveryDate:     $this->parseDateFromDTMList($dtmSegments, '002'),
+                currency:         $this->getCurrency(),
+                // Try ST (Ship-To) first; fall back to BY (Buying Party) when absent
+                shipToAddress:    $this->parseAddressBlock('ST', 'BY'),
+                // Try BT (Bill-To) first; fall back to BY (Buying Party) when absent
+                billToAddress:    $this->parseAddressBlock('BT', 'BY'),
+                buyerCompanyName: $buyerCompanyName,
             );
 
             $po1Segments = $this->findSegments('PO1');
@@ -204,15 +217,28 @@ class Edi850Parser
      */
     private function parseManufacturerInfo(array $n1Segments): array
     {
+        // N1*MF = explicit Manufacturer party (highest priority)
+        // N1*SE = Selling Party — the supplier/manufacturer in an 850 (fallback)
+        $candidate = null;
         foreach ($n1Segments as $n1) {
-            if (($n1[1] ?? '') === 'MF') {
-                return [
-                    'id'   => (isset($n1[3]) && $n1[3] !== '') ? $n1[3] : $this->extractSenderId(),
-                    'name' => (isset($n1[2]) && $n1[2] !== '') ? $n1[2] : null,
-                ];
+            $code = $n1[1] ?? '';
+            if ($code === 'MF') {
+                $candidate = $n1;
+                break; // MF is definitive; no need to keep scanning
+            }
+            if ($code === 'SE' && $candidate === null) {
+                $candidate = $n1; // SE is a fallback; continue scanning for MF
             }
         }
-        // No N1*MF: use ISA sender ID so partner_id is always populated
+
+        if ($candidate !== null) {
+            return [
+                'id'   => (isset($candidate[3]) && $candidate[3] !== '') ? $candidate[3] : $this->extractSenderId(),
+                'name' => (isset($candidate[2]) && $candidate[2] !== '') ? $candidate[2] : null,
+            ];
+        }
+
+        // No N1*MF or N1*SE: fall back to ISA sender ID so partner_id is never null
         return ['id' => $this->extractSenderId(), 'name' => null];
     }
 
@@ -221,38 +247,19 @@ class Edi850Parser
     // -------------------------------------------------------------------------
 
     /**
-     * Find an N1 segment with the given entity code (e.g. 'ST', 'BT', 'MF')
+     * Find an N1 segment matching any of the given entity codes (tried in order)
      * and read the following N2/N3/N4 segments to build a complete address.
+     *
+     * Accepts variadic codes so callers can specify fallbacks, e.g.:
+     *   parseAddressBlock('ST', 'BY')  — Ship-To, falling back to Buying Party
+     *   parseAddressBlock('BT', 'BY')  — Bill-To, falling back to Buying Party
      */
-    private function parseAddressBlock(string $code): array
+    private function parseAddressBlock(string ...$codes): array
     {
-        // Find the position of this N1 in the full segment list
-        $n1Position = null;
-        foreach ($this->segments as $i => $seg) {
-            if (($seg[0] ?? '') === 'N1' && ($seg[1] ?? '') === $code) {
-                $n1Position = $i;
-                break;
-            }
-        }
-
-        if ($n1Position === null) {
-            return [
-                'company_name' => null,
-                'company_id'   => null,
-                'id_qualifier' => null,
-                'street'       => null,
-                'city'         => null,
-                'state'        => null,
-                'postal_code'  => null,
-                'country'      => null,
-            ];
-        }
-
-        $n1 = $this->segments[$n1Position];
-        $address = [
-            'company_name' => (isset($n1[2]) && $n1[2] !== '') ? $n1[2] : null,
-            'company_id'   => (isset($n1[3]) && $n1[3] !== '') ? $n1[3] : null,
-            'id_qualifier' => (isset($n1[4]) && $n1[4] !== '') ? $n1[4] : null,
+        $nullAddress = [
+            'company_name' => null,
+            'company_id'   => null,
+            'id_qualifier' => null,
             'street'       => null,
             'city'         => null,
             'state'        => null,
@@ -260,33 +267,61 @@ class Edi850Parser
             'country'      => null,
         ];
 
-        // Walk forward to collect N2/N3/N4; stop at the next entity or transaction boundary
-        static $boundarySegments = ['N1', 'PO1', 'CTT', 'SE', 'GE', 'IEA', 'BEG', 'ST'];
+        $segmentCount = \count($this->segments);
 
-        for ($i = $n1Position + 1; $i < \count($this->segments); $i++) {
-            $seg     = $this->segments[$i];
-            $segType = $seg[0] ?? '';
-
-            if ($segType === 'N2') {
-                // N2 appends an additional name line
-                $extra = trim($seg[1] ?? '');
-                if ($extra !== '') {
-                    $address['company_name'] = trim(($address['company_name'] ?? '') . ' ' . $extra);
+        foreach ($codes as $code) {
+            $n1Position = null;
+            foreach ($this->segments as $i => $seg) {
+                if (($seg[0] ?? '') === 'N1' && ($seg[1] ?? '') === $code) {
+                    $n1Position = $i;
+                    break;
                 }
-            } elseif ($segType === 'N3') {
-                $address['street'] = (isset($seg[1]) && $seg[1] !== '') ? $seg[1] : null;
-            } elseif ($segType === 'N4') {
-                $address['city']        = (isset($seg[1]) && $seg[1] !== '') ? $seg[1] : null;
-                $address['state']       = (isset($seg[2]) && $seg[2] !== '') ? $seg[2] : null;
-                $address['postal_code'] = (isset($seg[3]) && $seg[3] !== '') ? $seg[3] : null;
-                $address['country']     = (isset($seg[4]) && $seg[4] !== '') ? $seg[4] : null;
-                break; // N4 ends the address block
-            } elseif (\in_array($segType, $boundarySegments, true)) {
-                break;
             }
+
+            if ($n1Position === null) {
+                continue;
+            }
+
+            $n1 = $this->segments[$n1Position];
+            $address = [
+                'company_name' => (isset($n1[2]) && $n1[2] !== '') ? $n1[2] : null,
+                'company_id'   => (isset($n1[3]) && $n1[3] !== '') ? $n1[3] : null,
+                'id_qualifier' => (isset($n1[4]) && $n1[4] !== '') ? $n1[4] : null,
+                'street'       => null,
+                'city'         => null,
+                'state'        => null,
+                'postal_code'  => null,
+                'country'      => null,
+            ];
+
+            $boundarySegments = ['N1', 'PO1', 'CTT', 'SE', 'GE', 'IEA', 'BEG', 'ST'];
+
+            for ($i = $n1Position + 1; $i < $segmentCount; $i++) {
+                $seg     = $this->segments[$i];
+                $segType = $seg[0] ?? '';
+
+                if ($segType === 'N2') {
+                    $extra = trim($seg[1] ?? '');
+                    if ($extra !== '') {
+                        $address['company_name'] = trim(($address['company_name'] ?? '') . ' ' . $extra);
+                    }
+                } elseif ($segType === 'N3') {
+                    $address['street'] = (isset($seg[1]) && $seg[1] !== '') ? $seg[1] : null;
+                } elseif ($segType === 'N4') {
+                    $address['city']        = (isset($seg[1]) && $seg[1] !== '') ? $seg[1] : null;
+                    $address['state']       = (isset($seg[2]) && $seg[2] !== '') ? $seg[2] : null;
+                    $address['postal_code'] = (isset($seg[3]) && $seg[3] !== '') ? $seg[3] : null;
+                    $address['country']     = (isset($seg[4]) && $seg[4] !== '') ? $seg[4] : null;
+                    break;
+                } elseif (\in_array($segType, $boundarySegments, true)) {
+                    break;
+                }
+            }
+
+            return $address;
         }
 
-        return $address;
+        return $nullAddress;
     }
 
     // -------------------------------------------------------------------------
