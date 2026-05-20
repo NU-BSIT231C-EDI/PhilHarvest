@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { WorkflowPrefill } from '../App'
 
+function formatX12(raw: string): string {
+  return raw
+    .split('~')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join('~\n') + '~'
+}
+
 interface RequestConfig {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE'
   endpoint: string
@@ -188,7 +196,7 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
 
       const previewData = await previewResponse.json()
       const x12String = previewData.x12_payload as string
-      setX12Preview(x12String)
+      setX12Preview(formatX12(x12String))
 
       // Step 2: relay to partner with x12Content wrapper
       const relayResponse = await fetch(`${apiUrl}/api/edi/relay`, {
@@ -309,7 +317,7 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
 
       if (response.ok) {
         const data = await response.json()
-        setX12Preview(data.x12_payload || 'No X12 generated')
+        setX12Preview(data.x12_payload ? formatX12(data.x12_payload) : 'No X12 generated')
         onNotification('success', 'X12 Preview Generated', 'Review below before sending')
       } else {
         onNotification('error', 'Preview failed', `HTTP ${response.status}`)
