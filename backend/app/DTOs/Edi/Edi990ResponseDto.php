@@ -26,12 +26,14 @@ class Edi990ResponseDto
 
     public function isAccepted(): bool
     {
-        return $this->responseCode === 'AA';
+        // Standard X12 990 uses 'A'; legacy non-standard tests used 'AA'
+        return \in_array($this->responseCode, ['A', 'AA'], true);
     }
 
     public function isRejected(): bool
     {
-        return $this->responseCode === 'RE';
+        // Standard X12 990 uses 'D' (Decline); legacy used 'RE'
+        return \in_array($this->responseCode, ['D', 'RE'], true);
     }
 
     public function toArray(): array

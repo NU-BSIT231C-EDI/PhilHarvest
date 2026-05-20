@@ -200,6 +200,9 @@ body {
 .order-list,
 .monitor-panel {
   border-radius: 22px;
+}
+
+.order-list {
   overflow: hidden;
 }
 
@@ -377,7 +380,7 @@ body {
 }
 
 .ack-table {
-  width: 100%;
+  min-width: 680px;
   border-collapse: collapse;
   font-size: 0.82rem;
 }

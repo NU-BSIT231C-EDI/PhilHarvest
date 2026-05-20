@@ -33,6 +33,45 @@ class InboundX12Controller
     }
 
     /**
+     * Generic inbound endpoint — detects transaction type from the ST segment
+     * and dispatches to the appropriate handler.
+     * POST /api/edi/inbound/x12
+     */
+    public function receiveInbound(Request $request)
+    {
+        $rawEdi = $request->getContent();
+
+        if (empty($rawEdi)) {
+            return response()->json([
+                'error' => 'Empty payload',
+                'message' => 'Request body must contain raw X12 EDI string',
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $type = $this->detectTransactionType($rawEdi);
+
+        return match ($type) {
+            '990'   => $this->receive990($request),
+            default => $this->receive850($request),
+        };
+    }
+
+    /**
+     * Extract the ST transaction set identifier code (e.g. '850', '990') from
+     * the first ST segment, defaulting to '850' when absent.
+     */
+    private function detectTransactionType(string $rawEdi): string
+    {
+        foreach (explode('~', $rawEdi) as $segment) {
+            $fields = explode('*', trim($segment));
+            if (($fields[0] ?? '') === 'ST' && isset($fields[1])) {
+                return trim($fields[1]);
+            }
+        }
+        return '850';
+    }
+
+    /**
      * Receive EDI 850 (Purchase Order)
      * POST /api/edi/850/receive
      * 

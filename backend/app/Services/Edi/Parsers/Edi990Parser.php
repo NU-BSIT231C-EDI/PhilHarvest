@@ -16,30 +16,44 @@ class Edi990Parser
 
     /**
      * Parse raw X12 990 string
+     *
+     * Standard X12 990 uses:
+     *   B1  - Beginning Segment: B1[1]=CarrierCode, B1[2]=LoadTenderId
+     *   B1A - Response Type Code: B1A[1]=ResponseCode (A=Accept, D=Decline)
+     *
+     * Non-standard / legacy format uses BEG: BEG[1]=ResponseCode, BEG[2]=LoadTenderId
      */
     public function parse(string $rawEdi): Edi990ResponseDto
     {
         try {
             $this->segments = $this->tokenizeX12($rawEdi);
 
-            // Extract key segments
-            $bgn = $this->findSegment('BEG');  // Beginning
-            $n1 = $this->findSegments('N1');   // Names (Carrier)
-            $dtm = $this->findSegments('DTM'); // Dates
+            $b1  = $this->findSegment('B1');   // Standard beginning segment
+            $b1a = $this->findSegment('B1A');  // Standard response code segment
+            $beg = $this->findSegment('BEG');  // Legacy fallback
+            $n1  = $this->findSegments('N1');
+            $dtm = $this->findSegments('DTM');
 
-            // Parse response code
-            $responseCode = $bgn[1] ?? 'UN';  // AA=Accept, RE=Reject, UN=Unknown
+            // B1A[1] = response code in standard format (A/D/C)
+            // BEG[1] = response code in legacy format (AA/RE)
+            $responseCode = $b1a[1] ?? $beg[1] ?? 'UN';
+
+            // B1[2] = load tender reference; BEG[2] = legacy equivalent
+            $loadTenderId = ($b1[2] ?? '') !== '' ? $b1[2] : ($beg[2] ?? 'UNKNOWN');
+
+            // B1[1] = Standard Carrier Alpha Code; fall back to N1*CN or N1*SH
+            $b1CarrierId = ($b1[1] ?? '') !== '' ? $b1[1] : null;
 
             $dto = new Edi990ResponseDto(
                 controlNumber: $this->extractControlNumber(),
                 responseCode: $responseCode,
-                loadTenderId: $bgn[2] ?? 'UNKNOWN',
-                carrierId: $this->getCarrierId($n1),
+                loadTenderId: $loadTenderId,
+                carrierId: $b1CarrierId ?? $this->getCarrierId($n1),
                 carrierName: $this->getCarrierName($n1),
                 responseDate: $this->parseDateFromDTM($dtm, '137'),
                 estimatedPickupDate: $this->parseDateFromDTM($dtm, '063'),
                 estimatedDeliveryDate: $this->parseDateFromDTM($dtm, '076'),
-                rejectionReason: $responseCode === 'RE' ? $this->getRejectionReason() : null,
+                rejectionReason: in_array($responseCode, ['RE', 'D'], true) ? $this->getRejectionReason() : null,
             );
 
             return $dto;
@@ -127,7 +141,7 @@ class Edi990Parser
      */
     private function formatX12Date(?string $dateStr): ?string
     {
-        if (!$dateStr || strlen($dateStr) < 8) {
+        if (!$dateStr || \strlen($dateStr) < 8) {
             return null;
         }
 
