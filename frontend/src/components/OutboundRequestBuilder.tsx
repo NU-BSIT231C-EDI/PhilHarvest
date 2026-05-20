@@ -202,7 +202,12 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
       const x12String = previewData.x12_payload as string
       setX12Preview(formatX12(x12String))
 
-      // Step 2: relay to partner with x12Content wrapper
+      // Step 2: relay to partner — body format depends on the Content-Type the user set
+      const partnerContentType = config.headers['Content-Type'] ?? ''
+      const partnerBody = partnerContentType.toLowerCase().includes('json')
+        ? JSON.stringify({ edi: x12String })
+        : x12String
+
       const relayResponse = await fetch(`${apiUrl}/api/edi/relay`, {
         method: 'POST',
         headers: {
@@ -213,7 +218,7 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
           url: config.endpoint,
           method: 'POST',
           headers: config.headers,
-          body: JSON.stringify({ x12Content: x12String }),
+          body: partnerBody,
         }),
       })
 
