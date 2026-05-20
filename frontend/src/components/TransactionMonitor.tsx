@@ -27,6 +27,15 @@ function txData(tx: TransactionRecord): Record<string, unknown> {
   return (tx.parsed_data as Record<string, unknown> | null) ?? {}
 }
 
+function formatX12(raw: string | null): string {
+  if (!raw) return 'No payload stored.'
+  return raw
+    .split('~')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join('~\n') + '~'
+}
+
 // ── 855 Acknowledgment Panel ─────────────────────────────────────────────────
 
 interface LineAckState {
@@ -388,7 +397,7 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
               </p>
               <details className="monitor-details">
                 <summary>Payload preview</summary>
-                <pre>{transaction.payload_preview || 'No payload stored.'}</pre>
+                <pre>{formatX12(transaction.payload_preview)}</pre>
               </details>
               <details className="monitor-details">
                 <summary>Parsed data</summary>

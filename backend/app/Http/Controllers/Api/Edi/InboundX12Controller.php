@@ -251,15 +251,49 @@ class InboundX12Controller
             // Parse the X12 string
             $dto = $this->edi990Parser->parse($rawEdi);
 
+            $controlNumber = trim($dto->controlNumber);
+
+            // Return a consistent response if already processed
+            $existing = EdiTransaction::where('control_number', $controlNumber)->first();
+            if ($existing) {
+                Log::info('Duplicate EDI 990 control number received', [
+                    'control_number' => $controlNumber,
+                    'transaction_id' => $existing->id,
+                ]);
+                return response()->json([
+                    'error'            => 'Already handled',
+                    'handled'          => true,
+                    'already_processed' => true,
+                    'message'          => 'This EDI interchange has already been handled',
+                    'transaction_id'   => $existing->id,
+                    'control_number'   => $existing->control_number,
+                ], Response::HTTP_CONFLICT);
+            }
+
             // Create transaction record
-            $transaction = EdiTransaction::create([
-                'transaction_type' => '990',
-                'control_number' => $dto->controlNumber,
-                'partner_id' => $dto->carrierId,
-                'raw_payload' => $rawEdi,
-                'parsed_data' => $dto->toArray(),
-                'status' => 'PENDING',
-            ]);
+            try {
+                $transaction = EdiTransaction::create([
+                    'transaction_type' => '990',
+                    'control_number'   => $controlNumber,
+                    'partner_id'       => $dto->carrierId,
+                    'raw_payload'      => $rawEdi,
+                    'parsed_data'      => $dto->toArray(),
+                    'status'           => 'PENDING',
+                ]);
+            } catch (QueryException $e) {
+                if ($this->isAlreadyHandledException($e)) {
+                    $existing = EdiTransaction::where('control_number', $controlNumber)->first();
+                    return response()->json([
+                        'error'            => 'Already handled',
+                        'handled'          => true,
+                        'already_processed' => true,
+                        'message'          => 'This EDI interchange has already been handled',
+                        'transaction_id'   => $existing?->id,
+                        'control_number'   => $controlNumber,
+                    ], Response::HTTP_CONFLICT);
+                }
+                throw $e;
+            }
 
             try {
                 ProcessEdiInboundJob::dispatch($transaction->id, $rawEdi);
@@ -274,19 +308,19 @@ class InboundX12Controller
 
             Log::info('EDI 990 received and queued for processing', [
                 'transaction_id' => $transaction->id,
-                'control_number' => $dto->controlNumber,
+                'control_number' => $controlNumber,
                 'load_tender_id' => $dto->loadTenderId,
-                'carrier_id' => $dto->carrierId,
-                'response_code' => $dto->responseCode,
+                'carrier_id'     => $dto->carrierId,
+                'response_code'  => $dto->responseCode,
             ]);
 
             return response()->json([
-                'success' => true,
-                'message' => 'EDI 990 received and queued for processing',
+                'success'        => true,
+                'message'        => 'EDI 990 received and queued for processing',
                 'transaction_id' => $transaction->id,
                 'control_number' => $transaction->control_number,
-                'response_code' => $dto->responseCode,
-                'is_accepted' => $dto->isAccepted(),
+                'response_code'  => $dto->responseCode,
+                'is_accepted'    => $dto->isAccepted(),
             ], Response::HTTP_ACCEPTED);
 
         } catch (\InvalidArgumentException $e) {
