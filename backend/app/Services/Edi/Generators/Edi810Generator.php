@@ -64,32 +64,36 @@ class Edi810Generator
         // DTM - Date/Time Reference
         $segments[] = "DTM{$this->fieldSeparator}002{$this->fieldSeparator}" . date('Ymd');
 
-        // PO1 - Line Items
+        // IT1 - Line Items (Invoice equivalent of PO1)
         foreach ($dto->lineItems as $lineItem) {
-            $segments[] = $this->buildPO1($lineItem);
+            $segments[] = $this->buildIT1($lineItem);
         }
+
+        // Ensure totals are calculated before summary segments
+        if ($dto->totalAmount === null) {
+            $dto->calculateTotals();
+        }
+
+        // TDS - Total Monetary Value Summary (mandatory in 810)
+        $tdsAmount = number_format((float)($dto->totalAmount ?? 0), 2, '.', '');
+        $segments[] = "TDS{$this->fieldSeparator}{$tdsAmount}";
 
         // TXI - Tax Information
         if ($dto->taxAmount && $dto->taxAmount > 0) {
             $segments[] = "TXI{$this->fieldSeparator}TX{$this->fieldSeparator}{$dto->taxAmount}";
         }
 
-        // AMT - Monetary Amount
+        // AMT - Monetary Amount (subtotal)
         if ($dto->subtotalAmount) {
             $segments[] = "AMT{$this->fieldSeparator}1{$this->fieldSeparator}{$dto->subtotalAmount}";
         }
 
-        // CTT - Transaction Total
+        // CTT - Transaction Totals
         $lineCount = count($dto->lineItems);
         $segments[] = "CTT{$this->fieldSeparator}{$lineCount}";
 
-        // TDS - Total Data Summary
-        if ($dto->totalAmount) {
-            $segments[] = "TDS{$this->fieldSeparator}{$dto->totalAmount}";
-        }
-
-        // SE - Transaction Set Trailer
-        $count = count($segments) + 1;
+        // SE - Transaction Set Trailer (counts ST through SE, excluding ISA and GS)
+        $count = count($segments) - 2 + 1; // subtract ISA and GS, add SE itself
         $segments[] = "SE{$this->fieldSeparator}{$count}{$this->fieldSeparator}0001";
 
         // GE - Functional Group Trailer
@@ -167,7 +171,8 @@ class Edi810Generator
         $invDate = $this->formatDateForX12($dto->invoiceDate ?? null);
         $poDate = $this->formatDateForX12($dto->poDate ?? null);
 
-        return "BIG{$this->fieldSeparator}{$dto->invoiceNumber}{$this->fieldSeparator}{$invDate}{$this->fieldSeparator}{$dto->poNumber}{$this->fieldSeparator}{$poDate}";
+        // BIG01=InvoiceDate, BIG02=InvoiceNumber, BIG03=PODate, BIG04=PONumber
+        return "BIG{$this->fieldSeparator}{$invDate}{$this->fieldSeparator}{$dto->invoiceNumber}{$this->fieldSeparator}{$poDate}{$this->fieldSeparator}{$dto->poNumber}";
     }
 
     /**
@@ -199,16 +204,16 @@ class Edi810Generator
     }
 
     /**
-     * Build PO1 segment (Line Item)
+     * Build IT1 segment (Invoice Line Item — 810 equivalent of PO1 in 850)
      */
-    private function buildPO1($lineItem): string
+    private function buildIT1($lineItem): string
     {
         $quantity = $lineItem->invoicedQuantity;
         $uom = $lineItem->quantityUom;
         $price = $lineItem->unitPrice;
         $partNum = $lineItem->partNumber;
 
-        return "PO1{$this->fieldSeparator}{$lineItem->lineNumber}{$this->fieldSeparator}{$quantity}{$this->fieldSeparator}{$uom}{$this->fieldSeparator}{$price}{$this->fieldSeparator}{$this->fieldSeparator}{$partNum}";
+        return "IT1{$this->fieldSeparator}{$lineItem->lineNumber}{$this->fieldSeparator}{$quantity}{$this->fieldSeparator}{$uom}{$this->fieldSeparator}{$price}{$this->fieldSeparator}{$this->fieldSeparator}{$partNum}";
     }
 
     /**
