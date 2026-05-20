@@ -12,7 +12,8 @@ use Illuminate\Support\Facades\Config;
  *
  * Structure:
  *   ISA / GS / ST
- *   BX   — transaction purpose, payment method, shipment type, load ID, carrier SCAC
+ *   B2   — beginning segment (carrier SCAC, load tender ID, payment method PP)
+ *   B2A  — transaction set purpose (00=Original) and transportation type (LT=Load Tender)
  *   G62  — pickup date (qualifier 10 = Requested Ship Date)
  *   G62  — delivery date (qualifier 02), when present
  *   N1*SH loop — shipper at header level
@@ -43,8 +44,9 @@ class Edi204Generator
         $segments[] = $this->buildGS();
         $segments[] = $this->buildST();
 
-        // BX — Beginning segment
-        $segments[] = $this->buildBX($dto);
+        // B2 + B2A — Beginning segments (X12 204 standard; BX is not valid for 204)
+        $segments[] = $this->buildB2($dto);
+        $segments[] = "B2A{$this->fieldSeparator}00{$this->fieldSeparator}LT";
 
         // G62 — Pickup date (qualifier 10 = Requested Ship Date, 2-char)
         $pickupDate = $this->formatDateForX12($dto->pickupDate ?? null);
@@ -138,7 +140,7 @@ class Edi204Generator
         $config    = Config::get('edi-partners.global');
         $senderId  = $config['sender_id'] ?? 'PHILHARVEST';
         $date = date('Ymd');
-        $time = date('His');
+        $time = date('Hi'); // GS04 must be exactly 4 digits (HHMM)
         return "GS{$this->fieldSeparator}MC{$this->fieldSeparator}{$senderId}{$this->fieldSeparator}LOGISTICS{$this->fieldSeparator}{$date}{$this->fieldSeparator}{$time}{$this->fieldSeparator}1{$this->fieldSeparator}X{$this->fieldSeparator}004010";
     }
 
@@ -148,18 +150,19 @@ class Edi204Generator
     }
 
     /**
-     * BX01 = Transaction Set Purpose Code (00=Original)
-     * BX02 = Shipment Method of Payment (CC=Collect, PP=Prepaid, TP=Third Party)
-     * BX03 = Shipment Qualifier (TL=Truckload, LTL=Less-Than-Truckload)
-     * BX04 = Shipment Identification Number (load tender ID)
-     * BX05 = Standard Carrier Alpha Code (SCAC / carrier code)
+     * B2-01: blank (Shipment Method of Payment — omitted; declared via B2-06)
+     * B2-02: Carrier code
+     * B2-03: blank (Bill of Lading Number)
+     * B2-04: Shipment Identification Number (load tender ID)
+     * B2-05: blank
+     * B2-06: PP (Prepaid)
+     *
+     * Produces: B2**{carrierCode}**{loadTenderId}**PP
      */
-    private function buildBX(Edi204MotorCarrierLoadTenderDto $dto): string
+    private function buildB2(Edi204MotorCarrierLoadTenderDto $dto): string
     {
-        $shipmentType = !empty($dto->shipments) ? ($dto->shipments[0]->shipmentType ?? 'TL') : 'TL';
-        $carrierCode  = $dto->carrierCode;
-
-        return "BX{$this->fieldSeparator}00{$this->fieldSeparator}CC{$this->fieldSeparator}{$shipmentType}{$this->fieldSeparator}{$dto->loadTenderId}{$this->fieldSeparator}{$carrierCode}";
+        $fs = $this->fieldSeparator;
+        return "B2{$fs}{$fs}{$dto->carrierCode}{$fs}{$fs}{$dto->loadTenderId}{$fs}{$fs}PP";
     }
 
     private function buildN3(array $address): string
