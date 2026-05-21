@@ -83,7 +83,11 @@ class OutboundX12Controller
                 'line_acknowledgments.*.rejected_quantity' => 'nullable|numeric|min:0',
                 'line_acknowledgments.*.rejection_reason' => 'nullable|string',
                 'line_acknowledgments.*.estimated_delivery_date' => 'nullable|date',
+                'line_acknowledgments.*.part_number' => 'nullable|string',
+                'line_acknowledgments.*.unit_price' => 'nullable|numeric|min:0',
                 'rejection_reason' => 'nullable|string',
+                'manufacturer_address' => 'nullable|array',
+                'seller_address' => 'nullable|array',
             ]);
 
             $validator->after(function ($validator) use ($request) {
@@ -148,6 +152,8 @@ class OutboundX12Controller
                 acknowledgmentCode: $validated['acknowledgment_code'],
                 acknowledgedDate: date('Y-m-d'),
                 rejectionReason: $validated['rejection_reason'] ?? null,
+                manufacturerAddress: $validated['manufacturer_address'] ?? null,
+                sellerAddress: $validated['seller_address'] ?? null,
             );
 
             // Add line acknowledgments
@@ -160,6 +166,8 @@ class OutboundX12Controller
                     rejectedQuantity: $lineAck['rejected_quantity'] ?? null,
                     rejectionReason: $lineAck['rejection_reason'] ?? null,
                     estimatedDeliveryDate: $lineAck['estimated_delivery_date'] ?? null,
+                    partNumber: $lineAck['part_number'] ?? null,
+                    unitPrice: isset($lineAck['unit_price']) ? (float)$lineAck['unit_price'] : null,
                 ));
             }
 
@@ -219,6 +227,10 @@ class OutboundX12Controller
                 'line_acknowledgments.*.acknowledgment_code' => 'required|in:AA,RE,IA',
                 'line_acknowledgments.*.accepted_quantity' => 'required|numeric|min:0',
                 'line_acknowledgments.*.quantity_uom' => 'required|string',
+                'line_acknowledgments.*.part_number' => 'nullable|string',
+                'line_acknowledgments.*.unit_price' => 'nullable|numeric|min:0',
+                'manufacturer_address' => 'nullable|array',
+                'seller_address' => 'nullable|array',
             ]);
 
             $validated = $validator->validate();
@@ -231,6 +243,8 @@ class OutboundX12Controller
                 manufacturerId: $validated['manufacturer_id'],
                 acknowledgmentCode: $validated['acknowledgment_code'],
                 acknowledgedDate: date('Y-m-d'),
+                manufacturerAddress: $validated['manufacturer_address'] ?? null,
+                sellerAddress: $validated['seller_address'] ?? null,
             );
 
             // Add line acknowledgments
@@ -240,6 +254,8 @@ class OutboundX12Controller
                     acknowledgmentCode: $lineAck['acknowledgment_code'] ?? 'AA',
                     acceptedQuantity: (float)($lineAck['accepted_quantity'] ?? 0),
                     quantityUom: $lineAck['quantity_uom'] ?? 'EA',
+                    partNumber: $lineAck['part_number'] ?? null,
+                    unitPrice: isset($lineAck['unit_price']) ? (float)$lineAck['unit_price'] : null,
                 ));
             }
 

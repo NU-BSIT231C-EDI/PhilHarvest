@@ -57,6 +57,7 @@ interface LineAckState {
   lineNumber: string
   partNumber: string
   orderedQty: number
+  unitPrice: number
   qtyUom: string
   ackCode: AckCode
   acceptedQty: number
@@ -78,8 +79,9 @@ function Edi855AckPanel({ transaction, onConfirm, onCancel }: AckPanelProps) {
   const [lines, setLines] = useState<LineAckState[]>(
     rawLines.map((li) => ({
       lineNumber: String(li.line_number ?? '1'),
-      partNumber: String(li.part_number ?? li.product_id_qualifier ?? '—'),
+      partNumber: String(li.part_number ?? li.product_id_qualifier ?? ''),
       orderedQty: Number(li.quantity ?? 0),
+      unitPrice: Number(li.unit_price ?? 0),
       qtyUom: String(li.quantity_uom ?? 'EA'),
       ackCode: 'AA',
       acceptedQty: Number(li.quantity ?? 0),
@@ -133,6 +135,8 @@ function Edi855AckPanel({ transaction, onConfirm, onCancel }: AckPanelProps) {
         acknowledgment_code: l.ackCode,
         accepted_quantity: l.acceptedQty,
         quantity_uom: l.qtyUom,
+        ...(l.partNumber ? { part_number: l.partNumber } : {}),
+        ...(l.unitPrice > 0 ? { unit_price: l.unitPrice } : {}),
         ...(l.rejectedQty > 0 ? { rejected_quantity: l.rejectedQty } : {}),
         ...(l.rejectionReason ? { rejection_reason: l.rejectionReason } : {}),
         ...(l.estimatedDeliveryDate ? { estimated_delivery_date: l.estimatedDeliveryDate } : {}),
@@ -466,7 +470,21 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
   }
 
   const handleAckConfirm = (tx: TransactionRecord, body: Record<string, unknown>) => {
-    onWorkflowAction?.({ ediType: '855', body, sourceDescription: `850 #${tx.id}` })
+    const d = txData(tx)
+    const rawShipTo = d.ship_to_address as Record<string, string | null> | null | undefined
+    const se = sePartnerAddress(partners)
+
+    const enriched: Record<string, unknown> = {
+      ...body,
+      manufacturer_address: rawShipTo
+        ? { street: rawShipTo.street ?? '', city: rawShipTo.city ?? '', state: rawShipTo.state ?? '', postal_code: rawShipTo.postal_code ?? '', country: rawShipTo.country ?? '' }
+        : null,
+      seller_address: se.street
+        ? { street: se.street, city: se.city, state: se.state, postal_code: se.postal_code, country: se.country }
+        : null,
+    }
+
+    onWorkflowAction?.({ ediType: '855', body: enriched, sourceDescription: `850 #${tx.id}` })
     setAckingId(null)
   }
 
