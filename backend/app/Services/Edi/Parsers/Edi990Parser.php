@@ -54,6 +54,8 @@ class Edi990Parser
                 estimatedPickupDate: $this->parseDateFromDTM($dtm, '063'),
                 estimatedDeliveryDate: $this->parseDateFromDTM($dtm, '076'),
                 rejectionReason: in_array($responseCode, ['RE', 'D'], true) ? $this->getRejectionReason() : null,
+                shAddress: $this->extractN1Group('SH'),
+                cnAddress: $this->extractN1Group('CN'),
             );
 
             return $dto;
@@ -176,6 +178,71 @@ class Edi990Parser
             }
         }
         return 'Unknown Carrier';
+    }
+
+    /**
+     * Extract N1 group (N1 + N3 + N4) by qualifier into an address array.
+     * Walks the segment list so N3/N4 are picked up from the correct group.
+     */
+    private function extractN1Group(string $qualifier): ?array
+    {
+        $n1 = $this->findN1Segment($qualifier);
+        if (!$n1) {
+            return null;
+        }
+
+        [$n3, $n4] = $this->findN3N4After($qualifier);
+
+        return [
+            'company_name'   => $n1[2] ?? '',
+            'street'         => $n3[1] ?? '',
+            'address_line_2' => $n3[2] ?? '',
+            'city'           => $n4[1] ?? '',
+            'state'          => $n4[2] ?? '',
+            'postal_code'    => $n4[3] ?? '',
+            'country'        => $n4[4] ?? '',
+        ];
+    }
+
+    private function findN1Segment(string $qualifier): ?array
+    {
+        foreach ($this->segments as $seg) {
+            if (($seg[0] ?? '') === 'N1' && ($seg[1] ?? '') === $qualifier) {
+                return $seg;
+            }
+        }
+        return null;
+    }
+
+    private function findN3N4After(string $qualifier): array
+    {
+        $n3 = null;
+        $n4 = null;
+        $inGroup = false;
+
+        foreach ($this->segments as $seg) {
+            $id = $seg[0] ?? '';
+
+            if ($id === 'N1') {
+                if ($inGroup) break;
+                $inGroup = ($seg[1] ?? '') === $qualifier;
+                continue;
+            }
+
+            if (!$inGroup) {
+                continue;
+            }
+
+            if ($id === 'N3') {
+                $n3 = $seg;
+            } elseif ($id === 'N4') {
+                $n4 = $seg;
+            } else {
+                break;
+            }
+        }
+
+        return [$n3, $n4];
     }
 
     /**

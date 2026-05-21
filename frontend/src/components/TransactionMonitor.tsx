@@ -284,14 +284,29 @@ function build856Prefill(tx: TransactionRecord): Record<string, unknown> {
   const loadTenderId = (d.load_tender_id as string | undefined) ?? ''
   const poNumber = loadTenderId.replace(/^LOAD-/, '') || loadTenderId
   const today = new Date().toISOString().slice(0, 10)
+
+  // In the 990: N1*SH = SERMACROPS (buyer/destination), N1*CN = PhilHarvest (our address).
+  // For the 856: ship_from = PhilHarvest (cn_address), ship_to = SERMACROPS (sh_address).
+  type Addr = Record<string, string>
+  const shAddr = (d.sh_address ?? {}) as Addr
+  const cnAddr = (d.cn_address ?? {}) as Addr
+
+  const normalize = (a: Addr, fallbackCountry: string) => ({
+    street:       a.street        ?? '',
+    city:         a.city          ?? '',
+    state:        a.state         ?? '',
+    postal_code:  a.postal_code   ?? '',
+    country:      a.country       || fallbackCountry,
+  })
+
   return {
-    asn_number: `ASN-${today}-001`,
-    po_number: poNumber,
-    po_date: today,
-    manufacturer_id: tx.partner_id ?? '',
-    ship_date: today,
-    ship_from_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
-    ship_to_address: { street: '', city: '', state: '', postal_code: '', country: '' },
+    asn_number:       `ASN-${today}-001`,
+    po_number:        poNumber,
+    po_date:          today,
+    manufacturer_id:  (d.carrier_id as string | undefined) ?? tx.partner_id ?? '',
+    ship_date:        today,
+    ship_from_address: normalize(cnAddr, 'PH'),
+    ship_to_address:   normalize(shAddr, ''),
     boxes: [{ box_number: '1', weight: 0, weight_uom: 'LB', line_items: [] }],
   }
 }

@@ -22,6 +22,8 @@ class Edi990ResponseDto
         public ?string $estimatedDeliveryDate = null,
         public ?string $rejectionReason = null,
         public ?array $loadDetails = [],
+        public ?array $shAddress = null,  // N1*SH address block from 990
+        public ?array $cnAddress = null,  // N1*CN address block from 990
     ) {}
 
     public function isAccepted(): bool
@@ -50,6 +52,8 @@ class Edi990ResponseDto
             'estimated_delivery_date' => $this->estimatedDeliveryDate,
             'rejection_reason' => $this->rejectionReason,
             'load_details' => $this->loadDetails,
+            'sh_address' => $this->shAddress,
+            'cn_address' => $this->cnAddress,
         ];
     }
 }
