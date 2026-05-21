@@ -10,6 +10,8 @@ use Illuminate\Http\Response;
 
 class OutboundController
 {
+    private const TX_NOT_FOUND = 'Transaction not found';
+
     private CsvOutboundService $csvOutboundService;
     private X12ToCSVConverter $x12ToCsvConverter;
 
@@ -69,6 +71,22 @@ class OutboundController
             'deleted' => $deleted,
             'kept'    => $keepIds->count(),
         ]);
+    }
+
+    /**
+     * Delete a single EDI transaction by ID
+     */
+    public function deleteTransaction($id)
+    {
+        $transaction = EdiTransaction::find($id);
+
+        if (!$transaction) {
+            return response()->json(['error' => self::TX_NOT_FOUND], \Illuminate\Http\Response::HTTP_NOT_FOUND);
+        }
+
+        $transaction->delete();
+
+        return response()->json(['deleted' => 1]);
     }
 
     /**
@@ -174,7 +192,7 @@ class OutboundController
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
-                'error' => 'Transaction not found'
+                'error' => self::TX_NOT_FOUND
             ], Response::HTTP_NOT_FOUND);
 
         } catch (\Exception $e) {
@@ -260,7 +278,7 @@ class OutboundController
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
-                'error' => 'Transaction not found'
+                'error' => self::TX_NOT_FOUND
             ], Response::HTTP_NOT_FOUND);
         }
     }

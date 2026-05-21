@@ -311,6 +311,50 @@ function build856Prefill(tx: TransactionRecord): Record<string, unknown> {
   }
 }
 
+function build856From850Prefill(tx: TransactionRecord): Record<string, unknown> {
+  const d = txData(tx)
+  const today = new Date().toISOString().slice(0, 10)
+  return {
+    asn_number: `ASN-${today}-001`,
+    po_number: (d.po_number as string | undefined) ?? '',
+    po_date: (d.po_date as string | undefined) ?? today,
+    manufacturer_id: tx.partner_id ?? '',
+    ship_date: today,
+    ship_from_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
+    ship_to_address: { street: '', city: '', state: '', postal_code: '', country: '' },
+    boxes: [{ box_number: '1', weight: 0, weight_uom: 'LB', line_items: [] }],
+  }
+}
+
+function build810From850Prefill(tx: TransactionRecord): Record<string, unknown> {
+  const d = txData(tx)
+  const today = new Date().toISOString().slice(0, 10)
+  const rawLines = (d.line_items as Array<Record<string, unknown>> | undefined) ?? []
+  const lineItems = rawLines.length > 0
+    ? rawLines.map((li, i) => ({
+        line_number: String(li.line_number ?? (i + 1)),
+        po_line_number: String(li.line_number ?? (i + 1)),
+        part_number: String(li.part_number ?? li.product_id_qualifier ?? ''),
+        part_description: String(li.description ?? li.part_number ?? ''),
+        invoiced_quantity: Number(li.quantity ?? 0),
+        quantity_uom: String(li.quantity_uom ?? 'EA'),
+        unit_price: 0,
+      }))
+    : [{ line_number: '1', po_line_number: '1', part_number: '', part_description: '', invoiced_quantity: 0, quantity_uom: 'EA', unit_price: 0 }]
+  return {
+    invoice_number: `INV-${today.replace(/-/g, '')}-001`,
+    invoice_date: today,
+    po_number: (d.po_number as string | undefined) ?? '',
+    po_date: (d.po_date as string | undefined) ?? today,
+    manufacturer_id: tx.partner_id ?? '',
+    bill_to_name: 'PhilHarvest Inc.',
+    bill_to_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
+    ship_from_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
+    total_amount: 0,
+    line_items: lineItems,
+  }
+}
+
 function build810Prefill(tx: TransactionRecord): Record<string, unknown> {
   const d = txData(tx)
   const today = new Date().toISOString().slice(0, 10)
@@ -356,6 +400,8 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
   const [ackingId, setAckingId] = useState<number | null>(null)
   const [page, setPage] = useState(1)
   const [clearing, setClearing] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
   useEffect(() => {
     void fetchTransactions()
@@ -389,6 +435,22 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
   const handleAckConfirm = (tx: TransactionRecord, body: Record<string, unknown>) => {
     onWorkflowAction?.({ ediType: '855', body, sourceDescription: `850 #${tx.id}` })
     setAckingId(null)
+  }
+
+  const handleDeleteTransaction = async (id: number) => {
+    setConfirmDeleteId(null)
+    setDeletingId(id)
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL ?? ''
+      const token = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
+      await fetch(`${apiUrl}/api/edi/transactions/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      setTransactions((prev) => prev.filter((t) => t.id !== id))
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const handleClearHistory = async (keep: number) => {
@@ -450,6 +512,38 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
                 <span className={`direction-pill direction-${transaction.direction}`}>{transaction.direction}</span>
                 <span className="type-pill">{transaction.transaction_type}</span>
                 <span className="status-pill">{transaction.status}</span>
+                {transaction.direction === 'inbound' && (
+                  <span style={{ marginLeft: 'auto' }}>
+                    {confirmDeleteId === transaction.id ? (
+                      <>
+                        <span style={{ fontSize: '0.8rem', marginRight: 6 }}>Delete?</span>
+                        <button
+                          className="workflow-btn"
+                          style={{ color: '#c62828', borderColor: '#c62828', padding: '2px 8px', fontSize: '0.78rem' }}
+                          disabled={deletingId === transaction.id}
+                          onClick={() => void handleDeleteTransaction(transaction.id)}
+                        >
+                          {deletingId === transaction.id ? '…' : 'Yes'}
+                        </button>
+                        <button
+                          className="ack-cancel-link"
+                          style={{ marginLeft: 4 }}
+                          onClick={() => setConfirmDeleteId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        className="workflow-btn"
+                        style={{ color: '#888', borderColor: '#888', padding: '2px 8px', fontSize: '0.78rem' }}
+                        onClick={() => setConfirmDeleteId(transaction.id)}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </span>
+                )}
               </div>
               <p className="monitor-meta">
                 Partner: <strong>{transaction.partner_id}</strong> | Control: <code>{transaction.control_number}</code>
@@ -490,6 +584,22 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
                         }
                       >
                         → Send 204 Load Tender
+                      </button>
+                      <button
+                        className="workflow-btn"
+                        onClick={() =>
+                          onWorkflowAction({ ediType: '856', body: build856From850Prefill(transaction), sourceDescription: `850 #${transaction.id}` })
+                        }
+                      >
+                        → Send 856 ASN
+                      </button>
+                      <button
+                        className="workflow-btn"
+                        onClick={() =>
+                          onWorkflowAction({ ediType: '810', body: build810From850Prefill(transaction), sourceDescription: `850 #${transaction.id}` })
+                        }
+                      >
+                        → Send 810 Invoice
                       </button>
                     </>
                   )}

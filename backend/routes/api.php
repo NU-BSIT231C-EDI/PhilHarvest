@@ -39,6 +39,9 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
 
     // Delete all transactions except the N most recent (for dashboard cleanup)
     Route::delete('/transactions', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'clearTransactions']);
+
+    // Delete a single transaction by ID
+    Route::delete('/transactions/{id}', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'deleteTransaction']);
     
     // ========================================================================
     // INBOUND ENDPOINTS - Receive raw X12 EDI strings
