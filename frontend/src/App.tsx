@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import TransactionMonitor from './components/TransactionMonitor'
 import OutboundRequestBuilder from './components/OutboundRequestBuilder'
 import TradingPartnerManager from './components/TradingPartnerManager'
@@ -37,6 +37,13 @@ function App() {
 
   const apiUrl = import.meta.env.VITE_API_URL ?? ''
   const token = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456'
+
+  useEffect(() => {
+    fetch(`${apiUrl}/api/edi/trading-partners`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: TradingPartner[]) => setPartners(data))
+      .catch(() => {})
+  }, [apiUrl, token])
 
   const addNotification = (type: Notification['type'], title: string, message: string) => {
     const id = Date.now().toString()
