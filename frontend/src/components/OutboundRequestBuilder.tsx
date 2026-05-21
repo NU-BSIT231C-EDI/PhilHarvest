@@ -219,11 +219,10 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
       const x12String = previewData.x12_payload as string
       setX12Preview(formatX12(x12String))
 
-      // Step 2: relay to partner — body format depends on the Content-Type the user set
-      const partnerContentType = config.headers['Content-Type'] ?? ''
-      const partnerBody = partnerContentType.toLowerCase().includes('json')
-        ? JSON.stringify({ edi: x12String })
-        : x12String
+      // Step 2: relay to partner — always send JSON {"x12Content":"..."} since partners
+      // consistently reject raw X12 and expect this specific JSON envelope.
+      const partnerHeaders = { ...config.headers, 'Content-Type': 'application/json' }
+      const partnerBody = JSON.stringify({ x12Content: x12String })
 
       const relayResponse = await fetch(`${apiUrl}/api/edi/relay`, {
         method: 'POST',
@@ -234,7 +233,7 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
         body: JSON.stringify({
           url: config.endpoint,
           method: 'POST',
-          headers: config.headers,
+          headers: partnerHeaders,
           body: partnerBody,
         }),
       })

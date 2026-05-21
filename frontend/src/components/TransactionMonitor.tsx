@@ -254,7 +254,7 @@ function build204Prefill(tx: TransactionRecord): Record<string, unknown> {
   const poNumber = (d.po_number as string | undefined) ?? ''
   const today = new Date().toISOString().slice(0, 10)
 
-  // 850 parser always returns an 8-key address object even when all values are null.
+  // ship_to_address from the 850 = SERMACROPS (buyer/consignee — where goods are delivered).
   // Normalize null → '' so the 204 builder shows empty-but-editable fields, not literal nulls.
   const rawShipTo = d.ship_to_address as Record<string, string | null> | null | undefined
   const shipToAddress = {
@@ -268,13 +268,14 @@ function build204Prefill(tx: TransactionRecord): Record<string, unknown> {
 
   return {
     load_tender_id:       `LOAD-${poNumber}`,
-    shipper_company_name: (d.buyer_company_name as string | null | undefined) || 'PhilHarvest Inc.',
+    // PhilHarvest is the shipper (seller). Address will come from our own partner profile once added.
+    shipper_company_name: 'PhilHarvest Inc.',
     shipper_address:      { street: '', city: '', state: '', postal_code: '', country: 'PH' },
     carrier_code:         'YOUR_CARRIER_CODE',
     ship_to_address:      shipToAddress,
     shipments: [{ shipment_number: `SHIP-${poNumber}`, weight: 0, weight_uom: 'LB', commodity: 'Agricultural Products' }],
-    pickup_date:   (d.shipping_date  as string | null | undefined) ?? today,
-    delivery_date: (d.delivery_date  as string | null | undefined) ?? new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10),
+    pickup_date:   (d.shipping_date as string | null | undefined) ?? today,
+    delivery_date: (d.delivery_date as string | null | undefined) ?? new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10),
   }
 }
 
