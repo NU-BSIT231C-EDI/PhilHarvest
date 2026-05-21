@@ -220,9 +220,9 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
       setX12Preview(formatX12(x12String))
 
       // Step 2: relay to partner — wrap X12 in the JSON envelope each partner expects.
-      // LOGISTICS expects { edi: "..." }; all others (e.g. SERMACROPS) expect { x12Content: "..." }.
-      const isLogisticsEndpoint = config.endpoint.toLowerCase().includes('logistics')
-      const envelopeKey = isLogisticsEndpoint ? 'edi' : 'x12Content'
+      // 204 (Load Tender) goes to LOGISTICS which expects { edi: "..." }.
+      // 855/810/856 go to SERMACROPS which expects { x12Content: "..." }.
+      const envelopeKey = config.ediType === '204' ? 'edi' : 'x12Content'
       const partnerHeaders = { ...config.headers, 'Content-Type': 'application/json' }
       const partnerBody = JSON.stringify({ [envelopeKey]: x12String })
 
