@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { WorkflowPrefill } from '../App'
+import type { TradingPartner } from './TradingPartnerManager'
 
 type Direction = 'inbound' | 'outbound'
 type AckCode = 'AA' | 'RE' | 'IA'
@@ -19,6 +20,7 @@ interface TransactionRecord {
 interface TransactionMonitorProps {
   refreshTrigger?: number
   onWorkflowAction?: (prefill: Omit<WorkflowPrefill, 'timestamp'>) => void
+  partners?: TradingPartner[]
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -34,6 +36,19 @@ function formatX12(raw: string | null): string {
     .map((s) => s.trim())
     .filter(Boolean)
     .join('~\n') + '~'
+}
+
+function sePartnerAddress(partners: TradingPartner[]): { company_name: string; street: string; city: string; state: string; postal_code: string; country: string } {
+  const se = partners.find((p) => p.edi_role === 'SE')
+  if (!se) return { company_name: 'PhilHarvest Inc.', street: '', city: '', state: '', postal_code: '', country: 'PH' }
+  return {
+    company_name: se.company_name,
+    street: se.address_line_1,
+    city: se.city,
+    state: se.state ?? '',
+    postal_code: se.postal_code,
+    country: se.country,
+  }
 }
 
 // ── 855 Acknowledgment Panel ─────────────────────────────────────────────────
@@ -249,13 +264,11 @@ function Edi855AckPanel({ transaction, onConfirm, onCancel }: AckPanelProps) {
 
 // ── Other prefill builders ───────────────────────────────────────────────────
 
-function build204Prefill(tx: TransactionRecord): Record<string, unknown> {
+function build204Prefill(tx: TransactionRecord, partners: TradingPartner[]): Record<string, unknown> {
   const d = txData(tx)
   const poNumber = (d.po_number as string | undefined) ?? ''
   const today = new Date().toISOString().slice(0, 10)
 
-  // ship_to_address from the 850 = SERMACROPS (buyer/consignee — where goods are delivered).
-  // Normalize null → '' so the 204 builder shows empty-but-editable fields, not literal nulls.
   const rawShipTo = d.ship_to_address as Record<string, string | null> | null | undefined
   const shipToAddress = {
     company_name: rawShipTo?.company_name ?? '',
@@ -266,11 +279,12 @@ function build204Prefill(tx: TransactionRecord): Record<string, unknown> {
     country:      rawShipTo?.country      ?? '',
   }
 
+  const se = sePartnerAddress(partners)
+
   return {
     load_tender_id:       `LOAD-${poNumber}`,
-    // PhilHarvest is the shipper (seller). Address will come from our own partner profile once added.
-    shipper_company_name: 'PhilHarvest Inc.',
-    shipper_address:      { street: '', city: '', state: '', postal_code: '', country: 'PH' },
+    shipper_company_name: se.company_name,
+    shipper_address:      { street: se.street, city: se.city, state: se.state, postal_code: se.postal_code, country: se.country },
     carrier_code:         'YOUR_CARRIER_CODE',
     ship_to_address:      shipToAddress,
     shipments: [{ shipment_number: `SHIP-${poNumber}`, weight: 0, weight_uom: 'LB', commodity: 'Agricultural Products' }],
@@ -279,25 +293,20 @@ function build204Prefill(tx: TransactionRecord): Record<string, unknown> {
   }
 }
 
-function build856Prefill(tx: TransactionRecord): Record<string, unknown> {
+function build856Prefill(tx: TransactionRecord, partners: TradingPartner[]): Record<string, unknown> {
   const d = txData(tx)
   const loadTenderId = (d.load_tender_id as string | undefined) ?? ''
   const poNumber = loadTenderId.replace(/^LOAD-/, '') || loadTenderId
   const today = new Date().toISOString().slice(0, 10)
 
-  // In the 990: N1*SH = SERMACROPS (buyer/destination), N1*CN = PhilHarvest (our address).
-  // For the 856: ship_from = PhilHarvest (cn_address), ship_to = SERMACROPS (sh_address).
+  // In 990: N1*SH = SERMACROPS (destination), N1*CN = PhilHarvest (our address).
+  // ship_from = PhilHarvest: prefer SE trading partner profile, fall back to cn_address from 990.
   type Addr = Record<string, string>
   const shAddr = (d.sh_address ?? {}) as Addr
   const cnAddr = (d.cn_address ?? {}) as Addr
 
-  const normalize = (a: Addr, fallbackCountry: string) => ({
-    street:       a.street        ?? '',
-    city:         a.city          ?? '',
-    state:        a.state         ?? '',
-    postal_code:  a.postal_code   ?? '',
-    country:      a.country       || fallbackCountry,
-  })
+  const se = sePartnerAddress(partners)
+  const shipFromStreet = se.street || (cnAddr.street ?? '')
 
   return {
     asn_number:       `ASN-${today}-001`,
@@ -305,30 +314,52 @@ function build856Prefill(tx: TransactionRecord): Record<string, unknown> {
     po_date:          today,
     manufacturer_id:  (d.carrier_id as string | undefined) ?? tx.partner_id ?? '',
     ship_date:        today,
-    ship_from_address: normalize(cnAddr, 'PH'),
-    ship_to_address:   normalize(shAddr, ''),
+    ship_from_address: {
+      street:      shipFromStreet,
+      city:        se.city      || (cnAddr.city        ?? ''),
+      state:       se.state     || (cnAddr.state       ?? ''),
+      postal_code: se.postal_code || (cnAddr.postal_code ?? ''),
+      country:     se.country   || (cnAddr.country     ?? 'PH'),
+    },
+    ship_to_address: {
+      street:      shAddr.street      ?? '',
+      city:        shAddr.city        ?? '',
+      state:       shAddr.state       ?? '',
+      postal_code: shAddr.postal_code ?? '',
+      country:     shAddr.country     ?? '',
+    },
     boxes: [{ box_number: '1', weight: 0, weight_uom: 'LB', line_items: [] }],
   }
 }
 
-function build856From850Prefill(tx: TransactionRecord): Record<string, unknown> {
+function build856From850Prefill(tx: TransactionRecord, partners: TradingPartner[]): Record<string, unknown> {
   const d = txData(tx)
   const today = new Date().toISOString().slice(0, 10)
+  const se = sePartnerAddress(partners)
+  const rawShipTo = d.ship_to_address as Record<string, string | null> | null | undefined
   return {
     asn_number: `ASN-${today}-001`,
     po_number: (d.po_number as string | undefined) ?? '',
     po_date: (d.po_date as string | undefined) ?? today,
     manufacturer_id: tx.partner_id ?? '',
     ship_date: today,
-    ship_from_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
-    ship_to_address: { street: '', city: '', state: '', postal_code: '', country: '' },
+    ship_from_address: { street: se.street, city: se.city, state: se.state, postal_code: se.postal_code, country: se.country },
+    ship_to_address: {
+      street:      rawShipTo?.street      ?? '',
+      city:        rawShipTo?.city        ?? '',
+      state:       rawShipTo?.state       ?? '',
+      postal_code: rawShipTo?.postal_code ?? '',
+      country:     rawShipTo?.country     ?? '',
+    },
     boxes: [{ box_number: '1', weight: 0, weight_uom: 'LB', line_items: [] }],
   }
 }
 
-function build810From850Prefill(tx: TransactionRecord): Record<string, unknown> {
+function build810From850Prefill(tx: TransactionRecord, partners: TradingPartner[]): Record<string, unknown> {
   const d = txData(tx)
   const today = new Date().toISOString().slice(0, 10)
+  const se = sePartnerAddress(partners)
+  const seAddr = { street: se.street, city: se.city, state: se.state, postal_code: se.postal_code, country: se.country }
   const rawLines = (d.line_items as Array<Record<string, unknown>> | undefined) ?? []
   const lineItems = rawLines.length > 0
     ? rawLines.map((li, i) => ({
@@ -347,17 +378,19 @@ function build810From850Prefill(tx: TransactionRecord): Record<string, unknown> 
     po_number: (d.po_number as string | undefined) ?? '',
     po_date: (d.po_date as string | undefined) ?? today,
     manufacturer_id: tx.partner_id ?? '',
-    bill_to_name: 'PhilHarvest Inc.',
-    bill_to_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
-    ship_from_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
+    bill_to_name: se.company_name,
+    bill_to_address: seAddr,
+    ship_from_address: seAddr,
     total_amount: 0,
     line_items: lineItems,
   }
 }
 
-function build810Prefill(tx: TransactionRecord): Record<string, unknown> {
+function build810Prefill(tx: TransactionRecord, partners: TradingPartner[]): Record<string, unknown> {
   const d = txData(tx)
   const today = new Date().toISOString().slice(0, 10)
+  const se = sePartnerAddress(partners)
+  const seAddr = { street: se.street, city: se.city, state: se.state, postal_code: se.postal_code, country: se.country }
   const boxes = (d.boxes as Array<Record<string, unknown>> | undefined) ?? []
   const lineItems = boxes.flatMap((box) => {
     const items = (box.line_items as Array<Record<string, unknown>> | undefined) ?? []
@@ -377,9 +410,9 @@ function build810Prefill(tx: TransactionRecord): Record<string, unknown> {
     po_number: d.po_number ?? '',
     po_date: d.po_date ?? today,
     manufacturer_id: d.manufacturer_id ?? tx.partner_id ?? '',
-    bill_to_name: 'PhilHarvest Inc.',
-    bill_to_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
-    ship_from_address: { street: '', city: '', state: '', postal_code: '', country: 'PH' },
+    bill_to_name: se.company_name,
+    bill_to_address: seAddr,
+    ship_from_address: seAddr,
     total_amount: 0,
     line_items:
       lineItems.length > 0
@@ -390,7 +423,7 @@ function build810Prefill(tx: TransactionRecord): Record<string, unknown> {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowAction }: TransactionMonitorProps) {
+export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowAction, partners = [] }: TransactionMonitorProps) {
   const PAGE_SIZE = 5
 
   const [transactions, setTransactions] = useState<TransactionRecord[]>([])
@@ -580,7 +613,7 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
                       <button
                         className="workflow-btn"
                         onClick={() =>
-                          onWorkflowAction({ ediType: '204', body: build204Prefill(transaction), sourceDescription: `850 #${transaction.id}` })
+                          onWorkflowAction({ ediType: '204', body: build204Prefill(transaction, partners), sourceDescription: `850 #${transaction.id}` })
                         }
                       >
                         → Send 204 Load Tender
@@ -588,7 +621,7 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
                       <button
                         className="workflow-btn"
                         onClick={() =>
-                          onWorkflowAction({ ediType: '856', body: build856From850Prefill(transaction), sourceDescription: `850 #${transaction.id}` })
+                          onWorkflowAction({ ediType: '856', body: build856From850Prefill(transaction, partners), sourceDescription: `850 #${transaction.id}` })
                         }
                       >
                         → Send 856 ASN
@@ -596,7 +629,7 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
                       <button
                         className="workflow-btn"
                         onClick={() =>
-                          onWorkflowAction({ ediType: '810', body: build810From850Prefill(transaction), sourceDescription: `850 #${transaction.id}` })
+                          onWorkflowAction({ ediType: '810', body: build810From850Prefill(transaction, partners), sourceDescription: `850 #${transaction.id}` })
                         }
                       >
                         → Send 810 Invoice
@@ -607,7 +640,7 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
                     <button
                       className="workflow-btn"
                       onClick={() =>
-                        onWorkflowAction({ ediType: '856', body: build856Prefill(transaction), sourceDescription: `990 #${transaction.id}` })
+                        onWorkflowAction({ ediType: '856', body: build856Prefill(transaction, partners), sourceDescription: `990 #${transaction.id}` })
                       }
                     >
                       → Send 856 ASN
@@ -617,7 +650,7 @@ export default function TransactionMonitor({ refreshTrigger = 0, onWorkflowActio
                     <button
                       className="workflow-btn"
                       onClick={() =>
-                        onWorkflowAction({ ediType: '810', body: build810Prefill(transaction), sourceDescription: `856 #${transaction.id}` })
+                        onWorkflowAction({ ediType: '810', body: build810Prefill(transaction, partners), sourceDescription: `856 #${transaction.id}` })
                       }
                     >
                       → Send 810 Invoice

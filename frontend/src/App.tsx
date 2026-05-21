@@ -291,7 +291,7 @@ function App() {
           <OutboundRequestBuilder onNotification={addNotification} workflowPrefill={workflowPrefill} partners={partners} />
         </ErrorBoundary>
         <ErrorBoundary>
-          <TransactionMonitor refreshTrigger={refreshTrigger} onWorkflowAction={handleWorkflowAction} />
+          <TransactionMonitor refreshTrigger={refreshTrigger} onWorkflowAction={handleWorkflowAction} partners={partners} />
         </ErrorBoundary>
       </main>
 
