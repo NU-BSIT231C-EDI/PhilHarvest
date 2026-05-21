@@ -118,18 +118,18 @@ class Edi855Generator
      */
     private function buildN1ManufacturerLoop(Edi855PurchaseOrderAckDto $dto): array
     {
-        $segs = ["N1{$this->fieldSeparator}MF{$this->fieldSeparator}{$dto->manufacturerId}"];
+        $segs = ["N1{$this->fieldSeparator}BY{$this->fieldSeparator}{$dto->manufacturerId}"];
         $this->appendAddressSegments($segs, $dto->manufacturerAddress);
         return $segs;
     }
 
     /**
-     * N1*BY loop (seller/us) with optional N3/N4 address segments
+     * N1*SE loop (selling party/us) with optional N3/N4 address segments
      */
     private function buildN1SellerLoop(Edi855PurchaseOrderAckDto $dto): array
     {
         $senderId = Config::get('edi-partners.manufacturer.x12.sender_id', Config::get('edi-partners.global.sender_id', 'PHILHARVEST'));
-        $segs = ["N1{$this->fieldSeparator}BY{$this->fieldSeparator}{$senderId}"];
+        $segs = ["N1{$this->fieldSeparator}SE{$this->fieldSeparator}{$senderId}"];
         $this->appendAddressSegments($segs, $dto->sellerAddress);
         return $segs;
     }
