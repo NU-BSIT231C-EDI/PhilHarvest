@@ -219,10 +219,12 @@ export default function OutboundRequestBuilder({ onNotification, workflowPrefill
       const x12String = previewData.x12_payload as string
       setX12Preview(formatX12(x12String))
 
-      // Step 2: relay to partner — always send JSON {"x12Content":"..."} since partners
-      // consistently reject raw X12 and expect this specific JSON envelope.
+      // Step 2: relay to partner — wrap X12 in the JSON envelope each partner expects.
+      // LOGISTICS expects { edi: "..." }; all others (e.g. SERMACROPS) expect { x12Content: "..." }.
+      const isLogisticsEndpoint = config.endpoint.toLowerCase().includes('logistics')
+      const envelopeKey = isLogisticsEndpoint ? 'edi' : 'x12Content'
       const partnerHeaders = { ...config.headers, 'Content-Type': 'application/json' }
-      const partnerBody = JSON.stringify({ x12Content: x12String })
+      const partnerBody = JSON.stringify({ [envelopeKey]: x12String })
 
       const relayResponse = await fetch(`${apiUrl}/api/edi/relay`, {
         method: 'POST',
