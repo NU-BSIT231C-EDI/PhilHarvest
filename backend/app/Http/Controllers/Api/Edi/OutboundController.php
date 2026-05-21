@@ -38,11 +38,21 @@ class OutboundController
     }
 
     /**
-     * Delete all EDI transactions except the N most recent
-     * DELETE /api/edi/transactions?keep=3
+     * Delete EDI transactions.
+     * DELETE /api/edi/transactions?before=2026-05-21   — delete everything before that date
+     * DELETE /api/edi/transactions?keep=3              — delete all except the N most recent
      */
     public function clearTransactions(\Illuminate\Http\Request $request)
     {
+        if ($request->has('before')) {
+            $before = $request->query('before');
+            $deleted = EdiTransaction::query()
+                ->whereDate('created_at', '<', $before)
+                ->delete();
+
+            return response()->json(['deleted' => $deleted]);
+        }
+
         $keep = max(0, (int) $request->query('keep', 3));
 
         $keepIds = EdiTransaction::query()
