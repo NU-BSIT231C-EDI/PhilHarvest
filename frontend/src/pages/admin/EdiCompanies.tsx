@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
+import { useLocation } from "wouter";
 import { Plus, Building2, Edit, Trash2, Eye, EyeOff, Copy, Check, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import { useToast } from "@/hooks/use-toast";
@@ -49,6 +50,7 @@ function maskToken(token: string) {
 }
 
 export default function EdiCompanies() {
+  const [, navigate] = useLocation();
   const [partners, setPartners] = useState<TradingPartner[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -163,12 +165,11 @@ export default function EdiCompanies() {
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             </Button>
           </div>
+          <Button className="gap-2" onClick={() => navigate("/admin/onboarding")} data-testid="button-add-company">
+            <Plus className="w-4 h-4" />Add Partner
+          </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="gap-2" onClick={openAdd} data-testid="button-add-company">
-                <Plus className="w-4 h-4" />Add Partner
-              </Button>
-            </DialogTrigger>
+            <div />
             <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editTarget ? "Edit Trading Partner" : "Add Trading Partner"}</DialogTitle>

@@ -78,6 +78,7 @@ import AdminReports from "@/pages/admin/Reports";
 import ContentManagement from "@/pages/admin/Content";
 import SystemSettings from "@/pages/admin/Settings";
 import AdminContractMonitoring from "@/pages/admin/ContractMonitoring";
+import ContractDetail from "@/pages/admin/ContractDetail";
 import AdminDeliveryManagement from "@/pages/admin/DeliveryManagement";
 import AdminShipmentTracking from "@/pages/admin/ShipmentTracking";
 import AdminDriverMonitoring from "@/pages/admin/DriverMonitoring";
@@ -173,6 +174,7 @@ function Router() {
       <Route path="/admin/reports" component={AdminReports} />
       <Route path="/admin/content" component={ContentManagement} />
       <Route path="/admin/settings" component={SystemSettings} />
+      <Route path="/admin/contracts/:id" component={ContractDetail} />
       <Route path="/admin/contracts" component={AdminContractMonitoring} />
       <Route path="/admin/deliveries" component={AdminDeliveryManagement} />
       <Route path="/admin/tracking" component={AdminShipmentTracking} />
