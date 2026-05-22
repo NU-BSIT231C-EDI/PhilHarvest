@@ -9,6 +9,17 @@ function jsonHeaders(): HeadersInit {
   return { ...authHeaders(), 'Content-Type': 'application/json' };
 }
 
+/** Turns a Laravel validation error bag (object or string) into a readable sentence */
+function extractErrorMessage(data: Record<string, unknown>, fallback: string): string {
+  const msg = data.message;
+  if (typeof msg === 'string') return msg;
+  if (msg && typeof msg === 'object') {
+    const lines = Object.values(msg as Record<string, string[]>).flat();
+    return lines.length ? lines.join('; ') : (data.error as string | undefined) ?? fallback;
+  }
+  return (data.error as string | undefined) ?? fallback;
+}
+
 // ─── Types matching backend /api/edi/transactions response ───────────────────
 
 export type BackendStatus = 'PENDING' | 'SENT' | 'FAILED' | 'RETRYING';
@@ -116,7 +127,7 @@ export async function send856(payload: {
     body: JSON.stringify(payload),
   });
   const data = await res.json();
-  if (!res.ok && res.status !== 202) throw new Error(data.message ?? `Send failed (${res.status})`);
+  if (!res.ok && res.status !== 202) throw new Error(extractErrorMessage(data, `Send failed (${res.status})`));
   return data;
 }
 
@@ -147,7 +158,7 @@ export async function send810(payload: {
     body: JSON.stringify(payload),
   });
   const data = await res.json();
-  if (!res.ok && res.status !== 202) throw new Error(data.message ?? `Send failed (${res.status})`);
+  if (!res.ok && res.status !== 202) throw new Error(extractErrorMessage(data, `Send failed (${res.status})`));
   return data;
 }
 
@@ -155,7 +166,7 @@ export async function send810(payload: {
 export async function send855(payload: Record<string, unknown>): Promise<{ transaction_id: number; control_number: string; status: string }> {
   const res = await fetch(`${API_URL}/api/edi/855/send`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(payload) });
   const data = await res.json();
-  if (!res.ok && res.status !== 202) throw new Error(data.message ?? `Send failed (${res.status})`);
+  if (!res.ok && res.status !== 202) throw new Error(extractErrorMessage(data, `Send failed (${res.status})`));
   return data;
 }
 
@@ -163,7 +174,7 @@ export async function send855(payload: Record<string, unknown>): Promise<{ trans
 export async function send204(payload: Record<string, unknown>): Promise<{ transaction_id: number; control_number: string; status: string }> {
   const res = await fetch(`${API_URL}/api/edi/204/send`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(payload) });
   const data = await res.json();
-  if (!res.ok && res.status !== 202) throw new Error(data.message ?? `Send failed (${res.status})`);
+  if (!res.ok && res.status !== 202) throw new Error(extractErrorMessage(data, `Send failed (${res.status})`));
   return data;
 }
 
@@ -171,7 +182,7 @@ export async function send204(payload: Record<string, unknown>): Promise<{ trans
 export async function previewEdi(type: '855' | '856' | '810' | '204', payload: Record<string, unknown>): Promise<string> {
   const res = await fetch(`${API_URL}/api/edi/${type}/preview`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(payload) });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.message ?? data.error ?? `Preview failed (${res.status})`);
+  if (!res.ok) throw new Error(extractErrorMessage(data, `Preview failed (${res.status})`));
   return data.x12_payload ?? data.x12_content ?? data.preview ?? data.edi ?? '';
 }
 

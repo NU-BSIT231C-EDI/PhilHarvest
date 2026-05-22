@@ -30,6 +30,8 @@ use Illuminate\Support\Facades\Validator;
  */
 class OutboundX12Controller
 {
+    private const VALIDATION_FAILED = 'Validation failed';
+
     private Edi855Generator $edi855Generator;
     private Edi204Generator $edi204Generator;
     private Edi856Generator $edi856Generator;
@@ -196,7 +198,7 @@ class OutboundX12Controller
 
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
-                'error' => 'Validation failed',
+                'error' => self::VALIDATION_FAILED,
                 'message' => $e->errors(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
 
@@ -272,7 +274,7 @@ class OutboundX12Controller
 
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
-                'error' => 'Validation failed',
+                'error' => self::VALIDATION_FAILED,
                 'message' => $e->errors(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
 
@@ -350,9 +352,16 @@ class OutboundX12Controller
                 'status' => $transaction->status,
             ], $transaction->status === 'SENT' ? Response::HTTP_OK : Response::HTTP_ACCEPTED);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error'   => self::VALIDATION_FAILED,
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
         } catch (\Exception $e) {
             Log::error('Error generating/sending EDI 204', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
@@ -425,9 +434,16 @@ class OutboundX12Controller
                 'status' => $transaction->status,
             ], $transaction->status === 'SENT' ? Response::HTTP_OK : Response::HTTP_ACCEPTED);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error'   => self::VALIDATION_FAILED,
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
         } catch (\Exception $e) {
             Log::error('Error generating/sending EDI 856', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
@@ -507,9 +523,16 @@ class OutboundX12Controller
                 'status' => $transaction->status,
             ], $transaction->status === 'SENT' ? Response::HTTP_OK : Response::HTTP_ACCEPTED);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error'   => self::VALIDATION_FAILED,
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
         } catch (\Exception $e) {
             Log::error('Error generating/sending EDI 810', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
@@ -688,7 +711,7 @@ class OutboundX12Controller
 
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
-                'error' => 'Validation failed',
+                'error' => self::VALIDATION_FAILED,
                 'message' => $e->errors(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
 
@@ -753,7 +776,7 @@ class OutboundX12Controller
 
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
-                'error' => 'Validation failed',
+                'error' => self::VALIDATION_FAILED,
                 'message' => $e->errors(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
 
@@ -821,7 +844,7 @@ class OutboundX12Controller
 
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
-                'error' => 'Validation failed',
+                'error' => self::VALIDATION_FAILED,
                 'message' => $e->errors(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
 

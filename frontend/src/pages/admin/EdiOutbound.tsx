@@ -161,15 +161,17 @@ export default function EdiOutbound() {
     return {
       load_tender_id: loadTenderId,
       shipper_company_name: "PHILHARVEST",
-      shipper_address: PHILHARVEST_ADDRESS.street,
-      shipper_city: PHILHARVEST_ADDRESS.city,
-      shipper_state: PHILHARVEST_ADDRESS.state,
-      shipper_postal_code: PHILHARVEST_ADDRESS.postal_code,
-      shipper_country: PHILHARVEST_ADDRESS.country,
+      shipper_address: PHILHARVEST_ADDRESS,
       carrier_code: p?.isa_receiver_id.trim() ?? "",
-      carrier_name: carrierName || p?.company_name || "",
-      pickup_date: pickupDate, delivery_date: deliveryDate,
-      stops: stops204.map((s, i) => ({ stop_number: i + 1, ...s })),
+      ship_to_address: stops204[0]
+        ? { street: stops204[0].address, city: stops204[0].city, state: stops204[0].state || "", postal_code: stops204[0].postal_code, country: stops204[0].country || "PH" }
+        : { street: "", city: "", state: "", postal_code: "", country: "PH" },
+      pickup_date: pickupDate,
+      delivery_date: deliveryDate,
+      shipments: stops204.map((s, i) => ({
+        shipment_number: `SHP-${String(i + 1).padStart(3, "0")}`,
+        commodity: carrierName || p?.company_name || "General Freight",
+      })),
     };
   }
 
