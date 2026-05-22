@@ -116,6 +116,26 @@ function build856Prefill(doc: EdiDoc): Record<string, unknown> {
   };
 }
 
+function build204Prefill(doc: EdiDoc): Record<string, unknown> {
+  const d = doc.parsedData ?? {};
+  const today = new Date().toISOString().slice(0, 10);
+  const rawShipTo = d.ship_to_address as Record<string, string> | null | undefined;
+
+  return {
+    load_tender_id: `LOAD-${today}-001`,
+    consignee_company_name: rawShipTo?.company_name ?? '',
+    consignee_address: {
+      street:      rawShipTo?.street      ?? '',
+      city:        rawShipTo?.city        ?? '',
+      state:       rawShipTo?.state       ?? '',
+      postal_code: rawShipTo?.postal_code ?? '',
+      country:     rawShipTo?.country     ?? 'PH',
+    },
+    pickup_date:   today,
+    delivery_date: (d.delivery_date as string | undefined) ?? (d.shipping_date as string | undefined) ?? today,
+  };
+}
+
 function build855Prefill(doc: EdiDoc): Record<string, unknown> {
   const d = doc.parsedData ?? {};
   const today = new Date().toISOString().slice(0, 10);
@@ -176,6 +196,12 @@ export default function EdiTransactions() {
     } finally {
       setRetrying(null);
     }
+  }
+
+  function goToOutboundWith204(doc: EdiDoc) {
+    setPrefill({ ediType: "204", body: build204Prefill(doc), sourceDescription: `From 850 ${doc.id}` });
+    setSelected(null);
+    navigate("/admin/edi/outbound");
   }
 
   function goToOutboundWith856(doc: EdiDoc) {
@@ -287,6 +313,9 @@ export default function EdiTransactions() {
                             <Button size="sm" variant="outline" className="text-xs h-7 px-2 gap-0.5 border-green-300 text-green-700 hover:bg-green-50" onClick={() => goToOutboundWith855(doc)} title="Pre-fill 855 ACK from this PO" data-testid={`button-send855-${doc.id}`}>
                               <ArrowRight className="w-3 h-3" />855
                             </Button>
+                            <Button size="sm" variant="outline" className="text-xs h-7 px-2 gap-0.5 border-orange-300 text-orange-700 hover:bg-orange-50" onClick={() => goToOutboundWith204(doc)} title="Pre-fill 204 Load Tender from this PO" data-testid={`button-send204-${doc.id}`}>
+                              <ArrowRight className="w-3 h-3" />204
+                            </Button>
                           </>
                         )}
                         <Button size="sm" variant="ghost" className="text-xs h-7 px-2" onClick={() => setSelected(doc)} data-testid={`button-view-txn-${doc.id}`}>View</Button>
@@ -335,6 +364,9 @@ export default function EdiTransactions() {
                       </Button>
                       <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700" onClick={() => goToOutboundWith855(selected)} data-testid="button-send855-dialog">
                         <ArrowRight className="w-3.5 h-3.5" />Send 855 ACK
+                      </Button>
+                      <Button size="sm" className="gap-1.5 bg-orange-600 hover:bg-orange-700" onClick={() => goToOutboundWith204(selected)} data-testid="button-send204-dialog">
+                        <ArrowRight className="w-3.5 h-3.5" />Send 204 Load Tender
                       </Button>
                     </>
                   )}

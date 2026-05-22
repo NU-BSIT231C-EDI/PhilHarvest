@@ -16,10 +16,10 @@ use Illuminate\Support\Facades\Config;
  *   G62*37 — pickup date  |  G62*38 — delivery date
  *   MS3  — carrier / H / ZZ
  *   AT5  — AB (service level)
+ *   L3***<pieces>   — piece count only (transaction level, before party loops)
  *   N1*SH / N3 / N4  — shipper
  *   N1*CN / N3 / N4  — consignee
  *   AT8*G*LB  — total gross weight
- *   L3***<pieces>   — piece count only
  *   NTE** — special instructions
  *   SE / GE / IEA
  */
@@ -45,8 +45,8 @@ class Edi204Generator
         $seg[] = "ST{$fs}204{$fs}{$this->controlNumber}";
 
         // B2 — B2-02=Sender, B2-04=PO/REF, B2-06=PP
-        $ref    = $dto->poNumber ?: $dto->loadTenderId;
-        $sender = substr($dto->shipperCompanyName, 0, 35);
+        $ref    = $this->sanitize($dto->poNumber ?: $dto->loadTenderId);
+        $sender = $this->sanitize(substr($dto->shipperCompanyName, 0, 35));
         $seg[]  = "B2{$fs}{$fs}{$sender}{$fs}{$fs}{$ref}{$fs}{$fs}PP";
 
         // B2A — transaction set purpose / transportation type
@@ -64,11 +64,15 @@ class Edi204Generator
         }
 
         // MS3 — carrier routing: qualifier H, routing code ZZ
-        $carrierCode = strtoupper(trim($dto->carrierCode));
+        $carrierCode = $this->sanitize(strtoupper(trim($dto->carrierCode)));
         $seg[] = "MS3{$fs}{$carrierCode}{$fs}H{$fs}ZZ";
 
         // AT5 — service level AB
         $seg[] = "AT5{$fs}AB";
+
+        // L3 — piece count at transaction level (before party loops per X12 204 spec)
+        $pieceCount = count($dto->shipments);
+        $seg[] = "L3{$fs}{$fs}{$fs}{$pieceCount}";
 
         // N1*SH — Shipper (flat, no S5/LX nesting)
         $seg[] = "N1{$fs}SH{$fs}{$sender}";
@@ -77,17 +81,18 @@ class Edi204Generator
             $seg[] = $this->buildN4($dto->shipperAddress);
         }
 
-        // N1*CN — Consignee
-        $consigneeName = substr($dto->shipToAddress['company_name'] ?? '', 0, 35);
+        // N1*CN — Consignee (company_name is mandatory for a valid N1 entity loop)
+        $consigneeName = $this->sanitize(substr($dto->shipToAddress['company_name'] ?? '', 0, 35));
+        if ($consigneeName === '') {
+            throw new \InvalidArgumentException(
+                'EDI 204 N1*CN requires a non-empty company_name in ship_to_address.'
+            );
+        }
         $seg[] = "N1{$fs}CN{$fs}{$consigneeName}";
         if (!empty($dto->shipToAddress)) {
             $seg[] = $this->buildN3($dto->shipToAddress);
             $seg[] = $this->buildN4($dto->shipToAddress);
         }
-
-        // L3 — piece count only at position 3; positions 1 and 2 empty
-        $pieceCount = count($dto->shipments);
-        $seg[] = "L3{$fs}{$fs}{$fs}{$pieceCount}";
 
         // AT8 — total gross weight in LB (aggregated across all shipments)
         $totalWeight = $this->aggregateWeight($dto);
@@ -97,7 +102,7 @@ class Edi204Generator
 
         // NTE — special instructions (empty qualifier per Document B)
         if (!empty($dto->specialInstructions)) {
-            $note = substr($dto->specialInstructions, 0, 80);
+            $note = $this->sanitize(substr($dto->specialInstructions, 0, 80));
             $seg[] = "NTE{$fs}{$fs}{$note}";
         }
 
@@ -157,21 +162,34 @@ class Edi204Generator
      */
     private function buildN3(array $address): string
     {
-        $line1 = $address['street']         ?? $address['address_line_1'] ?? '';
-        $line2 = $address['address_line_2'] ?? '';
+        $line1 = $this->sanitize($address['street']         ?? $address['address_line_1'] ?? '');
+        $line2 = $this->sanitize($address['address_line_2'] ?? '');
         $fs    = $this->fieldSeparator;
         return "N3{$fs}{$line1}{$fs}{$line2}";
     }
 
-    /** N4*<city>*<state>*<postal>*<country> */
+    /** N4*<city>*<state>*<postal>*<country> — state is mandatory */
     private function buildN4(array $address): string
     {
-        $city    = $address['city']        ?? '';
-        $state   = $address['state']       ?? '';
-        $postal  = $address['postal_code'] ?? $address['zip'] ?? '';
-        $country = $address['country']     ?? '';
+        $city    = $this->sanitize($address['city']        ?? '');
+        $state   = trim($address['state']       ?? '');
+        $postal  = $this->sanitize($address['postal_code'] ?? $address['zip'] ?? '');
+        $country = $this->sanitize($address['country']     ?? '');
         $fs      = $this->fieldSeparator;
+
+        if ($state === '') {
+            throw new \InvalidArgumentException(
+                "N4 segment requires a StateOrProvinceCode for city '{$city}'. Provide a state or region code."
+            );
+        }
+
         return "N4{$fs}{$city}{$fs}{$state}{$fs}{$postal}{$fs}{$country}";
+    }
+
+    /** Strip EDI delimiter characters from text fields to prevent segment corruption. */
+    private function sanitize(string $value): string
+    {
+        return str_replace(['*', '~', ':', '^'], ' ', trim($value));
     }
 
     /** Sum weights across all shipments; return null if none have weight. */

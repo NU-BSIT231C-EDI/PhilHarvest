@@ -358,6 +358,12 @@ class OutboundX12Controller
                 'message' => $e->errors(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
 
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'error'   => self::VALIDATION_FAILED,
+                'message' => $e->getMessage(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
         } catch (\Exception $e) {
             Log::error('Error generating/sending EDI 204', [
                 'error' => $e->getMessage(),
@@ -713,6 +719,12 @@ class OutboundX12Controller
             return response()->json([
                 'error' => self::VALIDATION_FAILED,
                 'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'error'   => self::VALIDATION_FAILED,
+                'message' => $e->getMessage(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
 
         } catch (\Exception $e) {

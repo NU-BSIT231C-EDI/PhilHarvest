@@ -31,7 +31,7 @@ const PHILHARVEST_ADDRESS = {
 interface LineItem855 { line_number: string; acknowledgment_code: string; accepted_quantity: string; quantity_uom: string; part_number: string; }
 interface LineItem856 { line_number: string; part_number: string; part_description: string; shipped_quantity: string; quantity_uom: string; }
 interface LineItem810 { line_number: string; po_line_number: string; part_number: string; part_description: string; invoiced_quantity: string; quantity_uom: string; unit_price: string; }
-interface Stop204 { address: string; city: string; state: string; postal_code: string; country: string; }
+interface Stop204 { company_name: string; address: string; city: string; state: string; postal_code: string; country: string; }
 
 const empty855Line = (n = 1): LineItem855 => ({ line_number: String(n), acknowledgment_code: "AA", accepted_quantity: "0", quantity_uom: "KG", part_number: "" });
 const empty856Line = (n = 1): LineItem856 => ({ line_number: String(n), part_number: "", part_description: "", shipped_quantity: "0", quantity_uom: "KG" });
@@ -75,7 +75,7 @@ export default function EdiOutbound() {
   const [pickupDate, setPickupDate] = useState(today);
   const [deliveryDate, setDeliveryDate] = useState(today);
   const [carrierName, setCarrierName] = useState("");
-  const [stops204, setStops204] = useState<Stop204[]>([{ address: "", city: "", state: "", postal_code: "", country: "PH" }]);
+  const [stops204, setStops204] = useState<Stop204[]>([{ company_name: "", address: "", city: "", state: "", postal_code: "", country: "PH" }]);
 
   const [preview, setPreview] = useState("");
   const [previewing, setPreviewing] = useState(false);
@@ -117,6 +117,21 @@ export default function EdiOutbound() {
       const rawBoxes = (p.boxes as Array<{ line_items: Array<Record<string, unknown>> }> | undefined) ?? [];
       const items = rawBoxes.flatMap((b) => b.line_items ?? []);
       if (items.length) setLines856(items.map((l, i) => ({ line_number: String(l.line_number ?? i + 1), part_number: (l.part_number as string) ?? "", part_description: (l.part_description as string) ?? "", shipped_quantity: String(l.shipped_quantity ?? 0), quantity_uom: (l.quantity_uom as string) ?? "KG" })));
+    } else if (prefill.ediType === "204") {
+      if (p.load_tender_id) setLoadTenderId(p.load_tender_id as string);
+      if (p.pickup_date) setPickupDate(p.pickup_date as string);
+      if (p.delivery_date) setDeliveryDate(p.delivery_date as string);
+      const rawAddr = p.consignee_address as Record<string, string> | undefined;
+      if (rawAddr || p.consignee_company_name) {
+        setStops204([{
+          company_name: (p.consignee_company_name as string) ?? rawAddr?.company_name ?? "",
+          address: rawAddr?.street ?? "",
+          city: rawAddr?.city ?? "",
+          state: rawAddr?.state ?? "",
+          postal_code: rawAddr?.postal_code ?? "",
+          country: rawAddr?.country ?? "PH",
+        }]);
+      }
     }
     clearPrefill();
   }, [prefill, today, clearPrefill]);
@@ -164,8 +179,8 @@ export default function EdiOutbound() {
       shipper_address: PHILHARVEST_ADDRESS,
       carrier_code: p?.isa_receiver_id.trim() ?? "",
       ship_to_address: stops204[0]
-        ? { street: stops204[0].address, city: stops204[0].city, state: stops204[0].state || "", postal_code: stops204[0].postal_code, country: stops204[0].country || "PH" }
-        : { street: "", city: "", state: "", postal_code: "", country: "PH" },
+        ? { company_name: stops204[0].company_name || p?.company_name || "", street: stops204[0].address, city: stops204[0].city, state: stops204[0].state || "", postal_code: stops204[0].postal_code, country: stops204[0].country || "PH" }
+        : { company_name: "", street: "", city: "", state: "", postal_code: "", country: "PH" },
       pickup_date: pickupDate,
       delivery_date: deliveryDate,
       shipments: stops204.map((s, i) => ({
@@ -401,19 +416,25 @@ export default function EdiOutbound() {
                     <div><Label>Delivery Date</Label><Input className="mt-1" type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} /></div>
                   </div>
                   <div>
-                    <p className="text-xs font-medium mb-2">Delivery Stops</p>
+                    <p className="text-xs font-medium mb-2">Consignee / Delivery Stop</p>
                     {stops204.map((s, i) => (
-                      <div key={i} className="grid grid-cols-12 gap-1 mb-2 items-end">
-                        <div className="col-span-4"><Label className="text-xs">Address</Label><Input className="mt-1 text-xs h-8" value={s.address} onChange={(e) => setStops204((p) => p.map((x, idx) => idx === i ? { ...x, address: e.target.value } : x))} /></div>
-                        <div className="col-span-3"><Label className="text-xs">City</Label><Input className="mt-1 text-xs h-8" value={s.city} onChange={(e) => setStops204((p) => p.map((x, idx) => idx === i ? { ...x, city: e.target.value } : x))} /></div>
-                        <div className="col-span-2"><Label className="text-xs">Postal</Label><Input className="mt-1 text-xs h-8" value={s.postal_code} onChange={(e) => setStops204((p) => p.map((x, idx) => idx === i ? { ...x, postal_code: e.target.value } : x))} /></div>
-                        <div className="col-span-2"><Label className="text-xs">Country</Label><Input className="mt-1 text-xs h-8" value={s.country} onChange={(e) => setStops204((p) => p.map((x, idx) => idx === i ? { ...x, country: e.target.value } : x))} /></div>
-                        <div className="col-span-1 flex items-end pb-1">
-                          {stops204.length > 1 && <button className="text-destructive text-lg leading-none" onClick={() => setStops204((p) => p.filter((_, idx) => idx !== i))}>×</button>}
+                      <div key={i} className="space-y-1 mb-3">
+                        <div className="grid grid-cols-12 gap-1 items-end">
+                          <div className="col-span-5"><Label className="text-xs">Company Name *</Label><Input className="mt-1 text-xs h-8" placeholder="Consignee company name" value={s.company_name} onChange={(e) => setStops204((p) => p.map((x, idx) => idx === i ? { ...x, company_name: e.target.value } : x))} /></div>
+                          <div className="col-span-6"><Label className="text-xs">Address</Label><Input className="mt-1 text-xs h-8" value={s.address} onChange={(e) => setStops204((p) => p.map((x, idx) => idx === i ? { ...x, address: e.target.value } : x))} /></div>
+                          <div className="col-span-1 flex items-end pb-1">
+                            {stops204.length > 1 && <button className="text-destructive text-lg leading-none" onClick={() => setStops204((p) => p.filter((_, idx) => idx !== i))}>×</button>}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-12 gap-1">
+                          <div className="col-span-4"><Label className="text-xs">City</Label><Input className="mt-1 text-xs h-8" value={s.city} onChange={(e) => setStops204((p) => p.map((x, idx) => idx === i ? { ...x, city: e.target.value } : x))} /></div>
+                          <div className="col-span-2"><Label className="text-xs">State *</Label><Input className="mt-1 text-xs h-8" placeholder="e.g. SC" value={s.state} onChange={(e) => setStops204((p) => p.map((x, idx) => idx === i ? { ...x, state: e.target.value } : x))} /></div>
+                          <div className="col-span-3"><Label className="text-xs">Postal</Label><Input className="mt-1 text-xs h-8" value={s.postal_code} onChange={(e) => setStops204((p) => p.map((x, idx) => idx === i ? { ...x, postal_code: e.target.value } : x))} /></div>
+                          <div className="col-span-3"><Label className="text-xs">Country</Label><Input className="mt-1 text-xs h-8" value={s.country} onChange={(e) => setStops204((p) => p.map((x, idx) => idx === i ? { ...x, country: e.target.value } : x))} /></div>
                         </div>
                       </div>
                     ))}
-                    <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => setStops204((p) => [...p, { address: "", city: "", state: "", postal_code: "", country: "PH" }])}>+ Add Stop</Button>
+                    <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => setStops204((p) => [...p, { company_name: "", address: "", city: "", state: "", postal_code: "", country: "PH" }])}>+ Add Stop</Button>
                   </div>
                 </CardContent>
               </Card>
