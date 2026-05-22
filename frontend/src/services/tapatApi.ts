@@ -10,6 +10,13 @@
  * PhilHarvest is registered with the Hub as trading partner TP-PH-001.
  */
 
+// The call to the Hub is forwarded through PhilHarvest's own backend relay
+// (POST /api/edi/relay). The browser only ever talks to the same-origin HTTPS
+// backend, so this avoids both CORS and HTTPS→HTTP mixed-content blocking that
+// a direct browser→Hub fetch hits on the deployed (Render, HTTPS) site.
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+const AUTH_TOKEN = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456';
+
 const HUB_URL = (import.meta.env.VITE_TAPAT_HUB_URL || 'http://98.88.77.137:3002').replace(/\/+$/, '');
 const ESTABLISHMENT_ID = import.meta.env.VITE_TAPAT_ESTABLISHMENT_ID || 'TP-PH-001';
 const TERMINAL_ID = import.meta.env.VITE_TAPAT_TERMINAL_ID || 'TERM-PH-WEB-001';
@@ -109,16 +116,35 @@ export async function verifyTapatCard(
   if (!cardId.trim()) throw new Error('Card number is required');
   if (!items.length) throw new Error('Cart is empty');
 
-  const res = await fetch(`${HUB_URL}/api/verification/request`, {
+  const envelope = buildEnvelope(cardId.trim(), items);
+
+  const relayRes = await fetch(`${API_URL}/api/edi/relay`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(buildEnvelope(cardId.trim(), items)),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${AUTH_TOKEN}` },
+    body: JSON.stringify({
+      url: `${HUB_URL}/api/verification/request`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(envelope),
+    }),
   });
 
-  const data = await res.json().catch(() => null);
-  if (!data) throw new Error(`TAPAT Hub returned a non-JSON response (${res.status})`);
-  if (!res.ok && data.approved === undefined) {
-    throw new Error(data.error || `TAPAT Hub error (${res.status})`);
+  const relay = await relayRes.json().catch(() => null);
+  if (!relay) throw new Error(`Relay returned a non-JSON response (${relayRes.status})`);
+  if (!relayRes.ok || relay.error) {
+    throw new Error(relay.message || relay.error || `Relay error (${relayRes.status})`);
+  }
+
+  // The relay returns { status, body } where body is the Hub's raw JSON string.
+  let data: TapatVerifyResult | { error?: string };
+  try {
+    data = JSON.parse(relay.body);
+  } catch {
+    throw new Error('TAPAT Hub returned an unreadable response');
+  }
+  if (typeof relay.status === 'number' && relay.status >= 400 && !('approved' in data)) {
+    const errMsg = 'error' in data ? data.error : undefined;
+    throw new Error(errMsg || `TAPAT Hub error (${relay.status})`);
   }
   return data as TapatVerifyResult;
 }
