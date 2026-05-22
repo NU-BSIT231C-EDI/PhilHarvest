@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useLocation } from "wouter";
-import { CheckCircle, CreditCard, Wallet, Banknote, MapPin } from "lucide-react";
+import { CheckCircle, CreditCard, Wallet, Banknote, MapPin, BadgePercent, IdCard, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 import DashboardLayout from "@/layouts/DashboardLayout";
+import { verifyTapatCard, tapatSavings, formatPeso, type TapatVerifyResult, type TapatLineItem, type ItemCategory } from "@/services/tapatApi";
 
 const schema = z.object({
   fullName: z.string().min(2),
@@ -29,16 +30,23 @@ const paymentMethods = [
   { id: "card", label: "Credit / Debit Card", icon: CreditCard },
 ];
 
-const cartSummary = [
-  { name: "Benguet Tomatoes", qty: 5, price: 85 },
-  { name: "Carabao Mangoes", qty: 3, price: 180 },
-  { name: "Pechay (Bok Choy)", qty: 2, price: 40 },
+// Fresh agri produce is treated as a basic necessity / prime commodity (BNPC)
+// for the statutory 5% discount (JAO 24-02). Swap to "GENERAL" for non-food SKUs.
+const cartSummary: Array<{ name: string; sku: string; qty: number; price: number; category: ItemCategory }> = [
+  { name: "Benguet Tomatoes", sku: "AGRI-TOMATO", qty: 5, price: 85, category: "BNPC" },
+  { name: "Carabao Mangoes", sku: "AGRI-MANGO", qty: 3, price: 180, category: "BNPC" },
+  { name: "Pechay (Bok Choy)", sku: "AGRI-PECHAY", qty: 2, price: 40, category: "BNPC" },
 ];
 
 export default function Checkout() {
   const [paymentMethod, setPaymentMethod] = useState("cod");
   const [ordered, setOrdered] = useState(false);
   const [, navigate] = useLocation();
+
+  const [tapatCardId, setTapatCardId] = useState("");
+  const [tapatResult, setTapatResult] = useState<TapatVerifyResult | null>(null);
+  const [tapatLoading, setTapatLoading] = useState(false);
+  const [tapatError, setTapatError] = useState<string | null>(null);
 
   const form = useForm<CheckoutForm>({
     resolver: zodResolver(schema),
@@ -50,6 +58,37 @@ export default function Checkout() {
   }
 
   const subtotal = cartSummary.reduce((s, i) => s + i.price * i.qty, 0);
+
+  const tapatItems: TapatLineItem[] = cartSummary.map((i) => ({
+    sku: i.sku, qty: i.qty, unit_price: i.price, category: i.category,
+  }));
+
+  async function applyTapatCard() {
+    setTapatLoading(true);
+    setTapatError(null);
+    setTapatResult(null);
+    try {
+      const result = await verifyTapatCard(tapatCardId, tapatItems);
+      setTapatResult(result);
+      if (!result.approved) setTapatError(result.message);
+    } catch (err) {
+      setTapatError(err instanceof Error ? err.message : "Could not reach the TAPAT Hub");
+    } finally {
+      setTapatLoading(false);
+    }
+  }
+
+  function clearTapatCard() {
+    setTapatCardId("");
+    setTapatResult(null);
+    setTapatError(null);
+  }
+
+  const approved = tapatResult && tapatResult.approved ? tapatResult : null;
+  const savings = approved ? tapatSavings(approved.discount) : 0;
+  const deliveryFee = 150;
+  const goodsTotal = approved ? approved.discount.net_total : subtotal;
+  const grandTotal = goodsTotal + deliveryFee;
 
   if (ordered) {
     return (
@@ -124,6 +163,39 @@ export default function Checkout() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* TAPAT Discount Card (PWD / Senior Citizen) */}
+            <Card className="border-card-border">
+              <CardContent className="p-5">
+                <h3 className="font-bold text-foreground mb-1 flex items-center gap-2"><BadgePercent className="w-4 h-4 text-primary" />TAPAT Discount Card</h3>
+                <p className="text-sm text-muted-foreground mb-4">PWD / Senior Citizen cardholders get the statutory discount (RA 9994 / RA 10754) applied automatically.</p>
+                {approved ? (
+                  <div className="flex items-center justify-between rounded-xl border-2 border-secondary/40 bg-secondary/5 p-3.5">
+                    <div className="flex items-center gap-2.5">
+                      <IdCard className="w-5 h-5 text-secondary" />
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{approved.beneficiary_type === "PWD" ? "PWD" : "Senior Citizen"} card applied</p>
+                        <p className="text-xs text-muted-foreground">{approved.card_id} · {formatPeso(savings)} saved</p>
+                      </div>
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" onClick={clearTapatCard} data-testid="button-tapat-remove">Remove</Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Input value={tapatCardId} onChange={(e) => setTapatCardId(e.target.value)} placeholder="Tap or enter card number (e.g. PWD-2024-000123)" data-testid="input-tapat-card" />
+                    <Button type="button" onClick={applyTapatCard} disabled={tapatLoading || !tapatCardId.trim()} className="font-semibold sm:w-32" data-testid="button-tapat-apply">
+                      {tapatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Apply"}
+                    </Button>
+                  </div>
+                )}
+                {tapatError && !approved && (
+                  <p className="mt-2.5 flex items-center gap-1.5 text-sm text-destructive" data-testid="text-tapat-error"><XCircle className="w-4 h-4" />{tapatError}</p>
+                )}
+                {approved?.bnpc_cap_exceeded && (
+                  <p className="mt-2.5 text-xs text-muted-foreground">Weekly ₱2,500 basic-necessities discount cap reached — excess billed at full price.</p>
+                )}
+              </CardContent>
+            </Card>
           </div>
 
           {/* Order Summary */}
@@ -141,11 +213,22 @@ export default function Checkout() {
                 </div>
                 <Separator />
                 <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>₱{subtotal.toLocaleString()}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Delivery Fee</span><span>₱150</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatPeso(subtotal)}</span></div>
+                  {approved && (
+                    <>
+                      {approved.discount.vat_removed > 0 && (
+                        <div className="flex justify-between text-secondary"><span>VAT exemption</span><span data-testid="text-tapat-vat">−{formatPeso(approved.discount.vat_removed)}</span></div>
+                      )}
+                      <div className="flex justify-between text-secondary"><span>TAPAT discount ({approved.beneficiary_type === "PWD" ? "PWD" : "Senior"})</span><span data-testid="text-tapat-discount">−{formatPeso(approved.discount.discount_amount)}</span></div>
+                    </>
+                  )}
+                  <div className="flex justify-between"><span className="text-muted-foreground">Delivery Fee</span><span>{formatPeso(deliveryFee)}</span></div>
                 </div>
                 <Separator />
-                <div className="flex justify-between font-bold text-base"><span>Total</span><span className="text-primary" data-testid="text-checkout-total">₱{(subtotal + 150).toLocaleString()}</span></div>
+                <div className="flex justify-between font-bold text-base"><span>Total</span><span className="text-primary" data-testid="text-checkout-total">{formatPeso(grandTotal)}</span></div>
+                {approved && (
+                  <p className="-mt-1 text-right text-xs font-medium text-secondary" data-testid="text-tapat-savings">You saved {formatPeso(savings)} with your TAPAT card</p>
+                )}
                 <Button type="submit" form="checkout-form" className="w-full font-semibold" data-testid="button-place-order">Place Order</Button>
               </CardContent>
             </Card>
