@@ -26,6 +26,7 @@ services:
     region: singapore
     plan: free
     healthCheckPath: /
+    preDeployCommand: "php artisan migrate --force"
     envVars:
       - key: APP_NAME
         value: PhilHarvest
