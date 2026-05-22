@@ -121,9 +121,11 @@ class OutboundEdiTransmissionService
             try {
                 $bodyFormat  = $partnerConfig['body_format'] ?? 'raw';
                 $contentType = $partnerConfig['content_type'] ?? 'application/x-edi';
-                $body = $bodyFormat === 'json_edi'
-                    ? json_encode(['edi' => $transaction->raw_payload])
-                    : $transaction->raw_payload;
+                $body = match ($bodyFormat) {
+                    'json_edi'        => json_encode(['edi'        => $transaction->raw_payload]),
+                    'json_x12content' => json_encode(['x12Content' => $transaction->raw_payload]),
+                    default           => $transaction->raw_payload,
+                };
 
                 $response = $this->sendRequest(
                     $endpoint,

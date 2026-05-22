@@ -68,3 +68,7 @@ services:
         sync: false
       - key: EDI_AUTH_TOKEN
         value: test_token_here
+      - key: EDI_MANUFACTURER_BODY_FORMAT
+        value: json_x12content
+      - key: EDI_MANUFACTURER_CONTENT_TYPE
+        value: application/json
