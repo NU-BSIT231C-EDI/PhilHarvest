@@ -341,6 +341,13 @@ function build856From850Prefill(tx: TransactionRecord, partners: TradingPartner[
   const today = new Date().toISOString().slice(0, 10)
   const se = sePartnerAddress(partners)
   const rawShipTo = d.ship_to_address as Record<string, string | null> | null | undefined
+  const rawLines = (d.line_items as Array<Record<string, unknown>> | undefined) ?? []
+  const boxLineItems = rawLines.map((li, i) => ({
+    line_number: String(li.line_number ?? i + 1),
+    part_number: (li.part_number as string | undefined) ?? '',
+    shipped_quantity: Number(li.quantity ?? 0),
+    quantity_uom: (li.quantity_uom as string | undefined) ?? 'EA',
+  }))
   return {
     asn_number: `ASN-${today}-001`,
     po_number: (d.po_number as string | undefined) ?? '',
@@ -349,13 +356,14 @@ function build856From850Prefill(tx: TransactionRecord, partners: TradingPartner[
     ship_date: today,
     ship_from_address: { street: se.street, city: se.city, state: se.state, postal_code: se.postal_code, country: se.country },
     ship_to_address: {
-      street:      rawShipTo?.street      ?? '',
-      city:        rawShipTo?.city        ?? '',
-      state:       rawShipTo?.state       ?? '',
-      postal_code: rawShipTo?.postal_code ?? '',
-      country:     rawShipTo?.country     ?? '',
+      company_name: (rawShipTo as Record<string, unknown> | null | undefined)?.company_name as string ?? '',
+      street:       rawShipTo?.street      ?? '',
+      city:         rawShipTo?.city        ?? '',
+      state:        rawShipTo?.state       ?? '',
+      postal_code:  rawShipTo?.postal_code ?? '',
+      country:      rawShipTo?.country     ?? '',
     },
-    boxes: [{ box_number: '1', weight: 0, weight_uom: 'LB', line_items: [] }],
+    boxes: [{ box_number: '1', weight: 0, weight_uom: 'LB', line_items: boxLineItems }],
   }
 }
 

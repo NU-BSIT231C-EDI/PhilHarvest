@@ -11,6 +11,9 @@ use App\Services\Edi\Generators\Edi810Generator;
 use App\Services\Edi\OutboundEdiTransmissionService;
 use App\DTOs\Edi\Edi855PurchaseOrderAckDto;
 use App\DTOs\Edi\Edi855LineAckDto;
+use App\DTOs\Edi\Edi856AdvanceShipNoticeDto;
+use App\DTOs\Edi\Edi856BoxDto;
+use App\DTOs\Edi\Edi856BoxLineItemDto;
 use App\Models\EdiTransaction;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -367,18 +370,27 @@ class OutboundX12Controller
     {
         try {
             $validated = $request->validate([
-                'asn_number' => 'required|string',
-                'po_number' => 'required|string',
-                'po_date' => 'required|date',
-                'manufacturer_id' => 'required|string',
-                'ship_date' => 'required|date',
-                'ship_from_address' => 'required|array',
-                'ship_to_address' => 'required|array',
-                'boxes' => 'required|array',
+                'asn_number'                           => 'required|string',
+                'po_number'                            => 'required|string',
+                'po_date'                              => 'required|date',
+                'manufacturer_id'                      => 'required|string',
+                'ship_date'                            => 'required|date',
+                'ship_from_address'                    => 'required|array',
+                'ship_to_address'                      => 'required|array',
+                'boxes'                                => 'required|array',
+                'boxes.*.box_number'                   => 'nullable|string',
+                'boxes.*.weight'                       => 'nullable|numeric',
+                'boxes.*.weight_uom'                   => 'nullable|string',
+                'boxes.*.line_items'                   => 'nullable|array',
+                'boxes.*.line_items.*.line_number'     => 'nullable|string',
+                'boxes.*.line_items.*.part_number'     => 'nullable|string',
+                'boxes.*.line_items.*.shipped_quantity'=> 'nullable|numeric',
+                'boxes.*.line_items.*.quantity_uom'    => 'nullable|string',
+                'carrier_code'                         => 'nullable|string',
+                'total_weight'                         => 'nullable|numeric',
             ]);
 
-            // Build DTO
-            $dto = new \App\DTOs\Edi\Edi856AdvanceShipNoticeDto(
+            $dto = new Edi856AdvanceShipNoticeDto(
                 controlNumber: uniqid('PH856_'),
                 asnNumber: $validated['asn_number'],
                 poNumber: $validated['po_number'],
@@ -387,10 +399,11 @@ class OutboundX12Controller
                 shipDate: $validated['ship_date'],
                 shipFromAddress: $validated['ship_from_address'],
                 shipToAddress: $validated['ship_to_address'],
+                carrierCode: $validated['carrier_code'] ?? null,
+                totalWeight: isset($validated['total_weight']) ? (float)$validated['total_weight'] : null,
             );
 
-            // Add boxes and line items
-            // (Implementation depends on boxes/line items data structure)
+            $this->attachBoxes($dto, $validated['boxes']);
 
             // Generate X12 string
             $x12Payload = $this->edi856Generator->generate($dto);
@@ -696,26 +709,40 @@ class OutboundX12Controller
     {
         try {
             $validated = $request->validate([
-                'asn_number'       => 'required|string',
-                'po_number'        => 'required|string',
-                'po_date'          => 'required|date',
-                'manufacturer_id'  => 'required|string',
-                'ship_date'        => 'required|date',
-                'ship_from_address'=> 'required|array',
-                'ship_to_address'  => 'required|array',
-                'boxes'            => 'required|array',
+                'asn_number'                           => 'required|string',
+                'po_number'                            => 'required|string',
+                'po_date'                              => 'required|date',
+                'manufacturer_id'                      => 'required|string',
+                'ship_date'                            => 'required|date',
+                'ship_from_address'                    => 'required|array',
+                'ship_to_address'                      => 'required|array',
+                'boxes'                                => 'required|array',
+                'boxes.*.box_number'                   => 'nullable|string',
+                'boxes.*.weight'                       => 'nullable|numeric',
+                'boxes.*.weight_uom'                   => 'nullable|string',
+                'boxes.*.line_items'                   => 'nullable|array',
+                'boxes.*.line_items.*.line_number'     => 'nullable|string',
+                'boxes.*.line_items.*.part_number'     => 'nullable|string',
+                'boxes.*.line_items.*.shipped_quantity'=> 'nullable|numeric',
+                'boxes.*.line_items.*.quantity_uom'    => 'nullable|string',
+                'carrier_code'                         => 'nullable|string',
+                'total_weight'                         => 'nullable|numeric',
             ]);
 
-            $dto = new \App\DTOs\Edi\Edi856AdvanceShipNoticeDto(
-                controlNumber:    uniqid('PREV856_'),
-                asnNumber:        $validated['asn_number'],
-                poNumber:         $validated['po_number'],
-                poDate:           $validated['po_date'],
-                manufacturerId:   $validated['manufacturer_id'],
-                shipDate:         $validated['ship_date'],
-                shipFromAddress:  $validated['ship_from_address'],
-                shipToAddress:    $validated['ship_to_address'],
+            $dto = new Edi856AdvanceShipNoticeDto(
+                controlNumber:   uniqid('PREV856_'),
+                asnNumber:       $validated['asn_number'],
+                poNumber:        $validated['po_number'],
+                poDate:          $validated['po_date'],
+                manufacturerId:  $validated['manufacturer_id'],
+                shipDate:        $validated['ship_date'],
+                shipFromAddress: $validated['ship_from_address'],
+                shipToAddress:   $validated['ship_to_address'],
+                carrierCode:     $validated['carrier_code'] ?? null,
+                totalWeight:     isset($validated['total_weight']) ? (float)$validated['total_weight'] : null,
             );
+
+            $this->attachBoxes($dto, $validated['boxes']);
 
             $x12Payload = $this->edi856Generator->generate($dto);
 
@@ -804,6 +831,28 @@ class OutboundX12Controller
                 'error' => 'Preview failed',
                 'message' => 'Failed to generate EDI 810 preview',
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    private function attachBoxes(Edi856AdvanceShipNoticeDto $dto, array $boxes): void
+    {
+        foreach ($boxes as $idx => $boxData) {
+            $box = new Edi856BoxDto(
+                boxNumber: $boxData['box_number'] ?? (string)($idx + 1),
+                weight: isset($boxData['weight']) ? (float)$boxData['weight'] : null,
+                weightUom: $boxData['weight_uom'] ?? 'LB',
+            );
+            foreach ($boxData['line_items'] ?? [] as $liIdx => $liData) {
+                $box->addLineItem(new Edi856BoxLineItemDto(
+                    lineNumber: $liData['line_number'] ?? (string)($liIdx + 1),
+                    poLineNumber: $liData['line_number'] ?? (string)($liIdx + 1),
+                    partNumber: $liData['part_number'] ?? '',
+                    partDescription: $liData['part_description'] ?? '',
+                    shippedQuantity: (float)($liData['shipped_quantity'] ?? 0),
+                    quantityUom: $liData['quantity_uom'] ?? 'EA',
+                ));
+            }
+            $dto->addBox($box);
         }
     }
 }
