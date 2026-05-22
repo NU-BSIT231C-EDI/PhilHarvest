@@ -69,8 +69,9 @@ const navConfig: Record<string, NavGroup[]> = {
     {
       group: "Contracts",
       items: [
-        { label: "Contract Management", href: "/seller/contracts", icon: Handshake },
-        { label: "Contract Inventory", href: "/seller/contract-inventory", icon: PackageSearch },
+        { label: "Incoming Requests", href: "/seller/contracts/incoming", icon: Inbox },
+        { label: "Active Contracts",  href: "/seller/contracts/active",   icon: Handshake },
+        { label: "Contract Inventory", href: "/seller/contracts/inventory", icon: PackageSearch },
       ],
     },
     {
@@ -225,7 +226,7 @@ function SidebarContent({ role, onClose }: { role: UserRole; onClose?: () => voi
                     <Icon className="w-4 h-4 shrink-0" />
                     <span className="flex-1">{item.label}</span>
                     {item.badge ? (
-                      <Badge className="bg-sidebar-primary text-sidebar-primary-foreground text-xs px-1.5 py-0 min-w-[20px] justify-center">
+                      <Badge className="bg-sidebar-primary text-sidebar-primary-foreground text-xs px-1.5 py-0 min-w-5 justify-center">
                         {item.badge}
                       </Badge>
                     ) : isActive ? (

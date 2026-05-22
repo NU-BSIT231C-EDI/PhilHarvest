@@ -54,6 +54,9 @@ import Shipments from "@/pages/seller/Shipments";
 import SellerReviewsPage from "@/pages/seller/ReviewsPage";
 import SellerProfile from "@/pages/seller/Profile";
 import SellerContractManagement from "@/pages/seller/ContractManagement";
+import IncomingContractRequests from "@/pages/seller/IncomingContractRequests";
+import ActiveContracts from "@/pages/seller/ActiveContracts";
+import SellerContractDetail from "@/pages/seller/SellerContractDetail";
 import ContractInventoryTracking from "@/pages/seller/ContractInventoryTracking";
 import SupplyPlanning from "@/pages/seller/SupplyPlanning";
 import EDIAutomation from "@/pages/seller/EDIAutomation";
@@ -150,6 +153,10 @@ function Router() {
       <Route path="/seller/shipments" component={Shipments} />
       <Route path="/seller/reviews" component={SellerReviewsPage} />
       <Route path="/seller/profile" component={SellerProfile} />
+      <Route path="/seller/contracts/incoming" component={IncomingContractRequests} />
+      <Route path="/seller/contracts/active" component={ActiveContracts} />
+      <Route path="/seller/contracts/inventory" component={ContractInventoryTracking} />
+      <Route path="/seller/contracts/:id" component={SellerContractDetail} />
       <Route path="/seller/contracts" component={SellerContractManagement} />
       <Route path="/seller/contract-inventory" component={ContractInventoryTracking} />
       <Route path="/seller/supply-planning" component={SupplyPlanning} />
