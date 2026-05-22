@@ -25,6 +25,8 @@ export default function TransactionMonitor({ refreshTrigger = 0 }: TransactionMo
 
   useEffect(() => {
     void fetchTransactions()
+    const interval = setInterval(() => void fetchTransactions(), 5000)
+    return () => clearInterval(interval)
   }, [refreshTrigger])
 
   const fetchTransactions = async () => {
