@@ -5,7 +5,7 @@ import {
   Users, Settings, Bell, MessageSquare, Star, BarChart2, Leaf,
   Menu, X, LogOut, ChevronRight, FileText, Map, UserCheck,
   History, Camera, ClipboardList, PlusCircle, Archive, Megaphone,
-  Monitor, TrendingUp, Network, Inbox, Building2, Send,
+  Monitor, TrendingUp, Network, Inbox, Building2, Send, Handshake, PackageSearch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -67,6 +67,13 @@ const navConfig: Record<string, NavGroup[]> = {
       ],
     },
     {
+      group: "Contracts",
+      items: [
+        { label: "Contract Management", href: "/seller/contracts", icon: Handshake },
+        { label: "Contract Inventory", href: "/seller/contract-inventory", icon: PackageSearch },
+      ],
+    },
+    {
       group: "Communication",
       items: [
         { label: "Messages", href: "/seller/messages", icon: MessageSquare },
@@ -124,6 +131,13 @@ const navConfig: Record<string, NavGroup[]> = {
         { label: "Transaction Inbox", href: "/admin/edi/transactions", icon: Inbox },
         { label: "Trading Partners", href: "/admin/edi/companies", icon: Building2 },
         { label: "Outbound Builder", href: "/admin/edi/outbound", icon: Send },
+      ],
+    },
+    {
+      group: "Contracts",
+      items: [
+        { label: "Contract Monitoring", href: "/admin/contracts", icon: Handshake },
+        { label: "Company Onboarding", href: "/admin/onboarding", icon: UserCheck },
       ],
     },
     {

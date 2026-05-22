@@ -3,7 +3,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useLocation } from "wouter";
-import { CheckCircle, CreditCard, Wallet, Banknote, MapPin, BadgePercent, IdCard, Loader2, XCircle } from "lucide-react";
+import { CheckCircle, CreditCard, Wallet, Banknote, MapPin, BadgePercent, IdCard, Loader2, XCircle, AlertTriangle, FileText } from "lucide-react";
+import { useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -38,10 +39,23 @@ const cartSummary: Array<{ name: string; sku: string; qty: number; price: number
   { name: "Pechay (Bok Choy)", sku: "AGRI-PECHAY", qty: 2, price: 40, category: "BNPC" },
 ];
 
+// Mock contract state — in production this would come from a contracts API call
+const mockCorpContract = {
+  contractNumber: "CTR-2024-001",
+  status: "active" as const,
+  expiresAt: "2024-12-31",
+  company: "FreshMart Philippines Inc.",
+};
+
 export default function Checkout() {
   const [paymentMethod, setPaymentMethod] = useState("cod");
   const [ordered, setOrdered] = useState(false);
   const [, navigate] = useLocation();
+  const { userType } = useAuthStore();
+  const isCorp = userType === "big_business";
+  // Swap between true/false here to demo both contract states
+  const hasActiveContract = true;
+  const activeContract = hasActiveContract ? mockCorpContract : null;
 
   const [tapatCardId, setTapatCardId] = useState("");
   const [tapatResult, setTapatResult] = useState<TapatVerifyResult | null>(null);
@@ -116,6 +130,31 @@ export default function Checkout() {
       <div className="p-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-5">
+            {/* Big Business Contract Banner */}
+            {isCorp && (
+              activeContract ? (
+                <div className="flex items-start gap-3 rounded-xl border border-green-300 bg-green-50 p-4">
+                  <FileText className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-green-800">Active Supply Contract</p>
+                    <p className="text-xs text-green-700 mt-0.5">
+                      {activeContract.contractNumber} · {activeContract.company} · Expires {activeContract.expiresAt}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4" data-testid="banner-no-contract">
+                  <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-destructive">No Active Supply Contract</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Your account requires an active supply contract to place orders. Please contact our sales team to set one up.
+                    </p>
+                  </div>
+                </div>
+              )
+            )}
+
             {/* Delivery Address */}
             <Card className="border-card-border">
               <CardContent className="p-5">
@@ -229,7 +268,14 @@ export default function Checkout() {
                 {approved && (
                   <p className="-mt-1 text-right text-xs font-medium text-secondary" data-testid="text-tapat-savings">You saved {formatPeso(savings)} with your TAPAT card</p>
                 )}
-                <Button type="submit" form="checkout-form" className="w-full font-semibold" data-testid="button-place-order">Place Order</Button>
+                <Button type="submit" form="checkout-form" className="w-full font-semibold" disabled={isCorp && !activeContract} data-testid="button-place-order">
+                  Place Order
+                </Button>
+                {isCorp && !activeContract && (
+                  <p className="text-center text-xs text-muted-foreground" data-testid="text-contract-required">
+                    A supply contract is required to proceed
+                  </p>
+                )}
               </CardContent>
             </Card>
           </div>

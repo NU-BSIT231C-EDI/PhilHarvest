@@ -1,6 +1,7 @@
 import { useRoute, Link } from "wouter";
-import { ArrowLeft, Package, CheckCircle, Truck, MapPin, Clock, Phone } from "lucide-react";
+import { ArrowLeft, Package, CheckCircle, Truck, MapPin, Clock, Phone, ScrollText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import DashboardLayout from "@/layouts/DashboardLayout";
@@ -17,6 +18,18 @@ const trackingSteps = [
 ];
 
 const statusOrder = ["pending", "processing", "confirmed", "shipped", "out_for_delivery", "delivered"];
+
+const ediDocStyle: Record<string, string> = {
+  sent:       "bg-green-100 text-green-700 border-green-200",
+  pending:    "bg-yellow-100 text-yellow-700 border-yellow-200",
+  not_issued: "bg-muted text-muted-foreground border-border",
+};
+
+const mockEdiDocs = [
+  { label: "PO Acknowledgment (855)", status: "sent",       note: "Confirmed by seller" },
+  { label: "Advance Ship Notice (856)", status: "pending",   note: "Awaiting shipment" },
+  { label: "Invoice (810)",             status: "not_issued", note: "Not yet issued" },
+];
 
 export default function OrderTracking() {
   const [, params] = useRoute("/customer/orders/:id");
@@ -130,6 +143,26 @@ export default function OrderTracking() {
                 <Button variant="outline" size="sm" className="gap-2 mt-3 w-full" data-testid="button-contact-seller">
                   <Phone className="w-3.5 h-3.5" /> Contact Seller
                 </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="border-card-border">
+              <CardContent className="p-5 space-y-3">
+                <h3 className="font-bold text-foreground flex items-center gap-2">
+                  <ScrollText className="w-4 h-4 text-primary" />
+                  EDI Document Status
+                </h3>
+                {mockEdiDocs.map((doc) => (
+                  <div key={doc.label} className="flex items-center justify-between gap-2" data-testid={`edi-doc-${doc.status}`}>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-foreground truncate">{doc.label}</p>
+                      <p className="text-xs text-muted-foreground">{doc.note}</p>
+                    </div>
+                    <Badge className={`text-xs border shrink-0 capitalize ${ediDocStyle[doc.status]}`}>
+                      {doc.status.replace("_", " ")}
+                    </Badge>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           </div>

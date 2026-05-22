@@ -54,6 +54,7 @@ import Shipments from "@/pages/seller/Shipments";
 import SellerReviewsPage from "@/pages/seller/ReviewsPage";
 import SellerProfile from "@/pages/seller/Profile";
 import SellerContractManagement from "@/pages/seller/ContractManagement";
+import ContractInventoryTracking from "@/pages/seller/ContractInventoryTracking";
 import SupplyPlanning from "@/pages/seller/SupplyPlanning";
 import EDIAutomation from "@/pages/seller/EDIAutomation";
 
@@ -87,6 +88,7 @@ import EdiDashboard from "@/pages/admin/EdiDashboard";
 import EdiTransactions from "@/pages/admin/EdiTransactions";
 import EdiCompanies from "@/pages/admin/EdiCompanies";
 import EdiOutbound from "@/pages/admin/EdiOutbound";
+import AdminOnboarding from "@/pages/admin/Onboarding";
 
 const queryClient = new QueryClient();
 
@@ -148,6 +150,7 @@ function Router() {
       <Route path="/seller/reviews" component={SellerReviewsPage} />
       <Route path="/seller/profile" component={SellerProfile} />
       <Route path="/seller/contracts" component={SellerContractManagement} />
+      <Route path="/seller/contract-inventory" component={ContractInventoryTracking} />
       <Route path="/seller/supply-planning" component={SupplyPlanning} />
       <Route path="/seller/edi" component={EDIAutomation} />
 
@@ -180,6 +183,7 @@ function Router() {
       <Route path="/admin/edi/dashboard" component={EdiDashboard} />
       <Route path="/admin/edi/transactions" component={EdiTransactions} />
       <Route path="/admin/edi/companies" component={EdiCompanies} />
+      <Route path="/admin/onboarding" component={AdminOnboarding} />
       <Route path="/admin/edi/outbound" component={EdiOutbound} />
 
       <Route component={NotFound} />

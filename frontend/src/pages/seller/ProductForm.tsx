@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Save, Upload, ArrowLeft, X, ImageIcon } from "lucide-react";
+import { Save, ArrowLeft, ImageIcon } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -39,7 +39,6 @@ export default function ProductForm() {
   const [existing, setExisting] = useState<ApiProduct | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<ProductFormData>({
     resolver: zodResolver(schema),
@@ -77,15 +76,6 @@ export default function ProductForm() {
       }
     });
   }, [isEdit, editParams?.id]);
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  }
 
   async function onSubmit(data: ProductFormData) {
     setSubmitting(true);
@@ -170,29 +160,25 @@ export default function ProductForm() {
                   <CardHeader><CardTitle className="text-base">Product Image</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
                     {imagePreview && (
-                      <div className="relative group w-32 h-32 rounded-xl overflow-hidden border border-border">
-                        <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => setImagePreview("")}
-                          className="absolute top-1 right-1 w-6 h-6 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
+                      <div className="w-32 h-32 rounded-xl overflow-hidden border border-border">
+                        <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" onError={() => setImagePreview("")} />
                       </div>
                     )}
-                    <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handleFileChange} data-testid="input-file-upload" />
-                    <div
-                      className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors cursor-pointer"
-                      onClick={() => fileInputRef.current?.click()}
-                      data-testid="area-image-upload"
-                    >
-                      {imagePreview
-                        ? <ImageIcon className="w-6 h-6 text-muted-foreground mx-auto mb-2" />
-                        : <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                      }
-                      <p className="text-sm font-medium text-foreground">{imagePreview ? "Replace image" : "Click to upload image"}</p>
-                      <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP up to 5MB</p>
+                    {!imagePreview && (
+                      <div className="w-32 h-32 rounded-xl border border-dashed border-border flex items-center justify-center bg-muted/30">
+                        <ImageIcon className="w-8 h-8 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div>
+                      <label className="text-sm font-medium text-foreground">Image URL</label>
+                      <Input
+                        className="mt-1"
+                        placeholder="https://example.com/image.jpg"
+                        value={imagePreview}
+                        onChange={(e) => setImagePreview(e.target.value)}
+                        data-testid="input-image-url"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Paste a link to the product image</p>
                     </div>
                   </CardContent>
                 </Card>
