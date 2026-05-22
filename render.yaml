@@ -4,7 +4,7 @@ services:
   # Render serves the pre-built dist/ folder; no server process needed.
   # ============================================================
   - type: web
-    name: philharvest-frontend
+    name: PhilHarvest-Staticfrontend
     runtime: static
     rootDir: ./frontend
     buildCommand: npm install && npm run build
