@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: philharvest-app
+    name: PhilHarvest
     runtime: docker
     dockerfilePath: ./Dockerfile
     region: singapore

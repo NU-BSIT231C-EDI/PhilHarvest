@@ -23,7 +23,7 @@ services:
   # Backend: Laravel — deployed via Docker
   # ============================================================
   - type: web
-    name: philharvest-app
+    name: PhilHarvest
     runtime: docker
     rootDir: ./backend
     dockerfilePath: ./Dockerfile
