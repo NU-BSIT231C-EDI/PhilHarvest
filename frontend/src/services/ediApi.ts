@@ -22,7 +22,7 @@ function extractErrorMessage(data: Record<string, unknown>, fallback: string): s
 
 // ─── Types matching backend /api/edi/transactions response ───────────────────
 
-export type BackendStatus = 'PENDING' | 'SENT' | 'FAILED' | 'RETRYING';
+export type BackendStatus = 'PENDING' | 'SENT' | 'FAILED' | 'RETRYING' | 'VALIDATED' | 'REJECTED';
 
 export interface BackendTransaction {
   id: number;
@@ -52,10 +52,11 @@ export function typeLabel(type: string): string {
   return TYPE_LABELS[type] ?? type;
 }
 
-/** Maps backend PENDING/SENT/FAILED/RETRYING → frontend status tokens */
+/** Maps backend status values → frontend status tokens */
 export function mapStatus(status: BackendStatus): 'delivered' | 'pending' | 'validated' | 'error' {
   if (status === 'SENT') return 'delivered';
-  if (status === 'FAILED') return 'error';
+  if (status === 'VALIDATED') return 'validated';
+  if (status === 'FAILED' || status === 'REJECTED') return 'error';
   return 'pending';
 }
 
