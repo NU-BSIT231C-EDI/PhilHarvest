@@ -440,6 +440,15 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
       };
     }
 
+    // 204/990 go to a different partner (logistics), so skip the partnerId gate.
+    function byPoOnly(type: string) {
+      return (d: EdiDoc) => {
+        if (used.has(d.id) || d.type !== type) return false;
+        const dPo = (d.parsedData?.po_number as string | undefined) ?? extractPoFromX12(d.raw);
+        return !!poNum && !!dPo && dPo === poNum;
+      };
+    }
+
     function byPartner(type: string) {
       return (d: EdiDoc) => !used.has(d.id) && d.type === type && d.partnerId === po.partnerId;
     }
@@ -455,7 +464,7 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
       docs855: take(byRelated("855")),
       docs856: take(byRelated("856")),
       docs810: take(byRelated("810")),
-      docs204: take(byRelated("204")),
+      docs204: take(byPoOnly("204")),
       docs990: take(byPartner("990")),
     };
   });
