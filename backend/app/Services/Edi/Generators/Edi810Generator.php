@@ -197,9 +197,9 @@ class Edi810Generator
      */
     private function buildN4(array $address): string
     {
-        $city = $address['city'] ?? '';
+        $city  = $address['city']  ?? '';
         $state = $address['state'] ?? '';
-        $zip = $address['zip'] ?? '';
+        $zip   = $address['postal_code'] ?? $address['zip'] ?? '';
         return "N4{$this->fieldSeparator}{$city}{$this->fieldSeparator}{$state}{$this->fieldSeparator}{$zip}";
     }
 
