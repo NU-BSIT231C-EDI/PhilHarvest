@@ -211,6 +211,11 @@ export async function updateTradingPartner(id: number, data: Partial<TradingPart
 }
 
 /** DELETE /api/edi/trading-partners/:id */
+export async function deleteTransaction(id: number): Promise<void> {
+  const res = await fetch(`${API_URL}/api/edi/transactions/${id}`, { method: 'DELETE', headers: authHeaders() });
+  if (!res.ok && res.status !== 204) throw new Error(`Delete failed (${res.status})`);
+}
+
 export async function deleteTradingPartner(id: number): Promise<void> {
   const res = await fetch(`${API_URL}/api/edi/trading-partners/${id}`, { method: 'DELETE', headers: authHeaders() });
   if (!res.ok && res.status !== 204) throw new Error(`Delete failed (${res.status})`);

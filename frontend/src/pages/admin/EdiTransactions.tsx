@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Search, Download, RefreshCw, ArrowRight, ChevronDown, ChevronRight, Printer, Leaf } from "lucide-react";
+import { Search, Download, RefreshCw, ArrowRight, ChevronDown, ChevronRight, Printer, Leaf, Trash2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import StatusBadge from "@/components/shared/StatusBadge";
 import {
   fetchTransactions,
   retryTransmission,
+  deleteTransaction,
   typeLabel,
   mapStatus,
   formatDate,
@@ -568,12 +569,14 @@ function DocStep({
 }
 
 function ThreadRow({
-  thread, expanded, onToggle, onView, actions,
+  thread, expanded, onToggle, onView, actions, onDelete, deleting,
 }: {
   thread: Thread;
   expanded: boolean;
   onToggle: () => void;
   onView: (doc: EdiDoc) => void;
+  onDelete: (thread: Thread) => void;
+  deleting: boolean;
   actions: {
     send855: (po: EdiDoc) => void;
     send204: (po: EdiDoc) => void;
@@ -620,6 +623,14 @@ function ThreadRow({
           onClick={(e) => { e.stopPropagation(); onView(po); }}
         >
           View
+        </Button>
+        <Button
+          size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0 text-muted-foreground hover:text-destructive"
+          onClick={(e) => { e.stopPropagation(); onDelete(thread); }}
+          disabled={deleting}
+          title="Delete thread"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
         </Button>
       </button>
 
@@ -677,6 +688,7 @@ export default function EdiTransactions() {
   const [selected, setSelected] = useState<EdiDoc | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [weightMap, setWeightMap] = useState<Record<string, number>>({});
+  const [deletingThread, setDeletingThread] = useState<string | null>(null);
   const { toast } = useToast();
   const { setPrefill } = useEdiPrefill();
   const [, navigate] = useLocation();
@@ -717,6 +729,21 @@ export default function EdiTransactions() {
       toast({ title: "Retry failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
     } finally {
       setRetrying(null);
+    }
+  }
+
+  async function handleDeleteThread(thread: Thread) {
+    if (!window.confirm(`Delete this 850 thread (${(thread.po.parsedData?.po_number as string | undefined) ?? thread.po.id}) and all its related documents? This cannot be undone.`)) return;
+    setDeletingThread(thread.po.id);
+    const allDocs = [thread.po, ...thread.docs855, ...thread.docs204, ...thread.docs990, ...thread.docs856, ...thread.docs810];
+    try {
+      await Promise.all(allDocs.map((d) => deleteTransaction(d.backendId)));
+      toast({ title: "Thread deleted", description: `PO thread and ${allDocs.length} document(s) removed.` });
+      loadDocs();
+    } catch (err: unknown) {
+      toast({ title: "Delete failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setDeletingThread(null);
     }
   }
 
@@ -790,6 +817,8 @@ export default function EdiTransactions() {
                 expanded={expanded.has(thread.po.id)}
                 onToggle={() => toggleThread(thread.po.id)}
                 onView={setSelected}
+                onDelete={handleDeleteThread}
+                deleting={deletingThread === thread.po.id}
                 actions={actions}
               />
             ))}
