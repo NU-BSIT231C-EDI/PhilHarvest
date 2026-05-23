@@ -149,6 +149,101 @@ export async function verifyTapatCard(
   return data as TapatVerifyResult;
 }
 
+/** Client-built record of a completed TAPAT-discounted sale. */
+export interface TapatReceipt {
+  receipt_number: string;
+  transaction_id: string;
+  card_id: string;
+  beneficiary_type: 'PWD' | 'SC' | null;
+  gross_amount: number;
+  vat_removed: number;
+  discount_amount: number;
+  net_total: number;
+  transacted_at: string;
+}
+
+/** Builds the EDI 826 (tax-information exchange) envelope from an approved result. */
+function build826Envelope(result: TapatApprovedResult, controlNumber: string) {
+  const now = new Date();
+  const dateTag = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const tail = controlNumber.slice(-5);
+  const setControlNumber = `ST-${controlNumber.padStart(9, '0')}`;
+  const d = result.discount;
+  return {
+    isa: {
+      sender_id: ESTABLISHMENT_ID,
+      receiver_id: 'TP-001',
+      control_number: controlNumber,
+      timestamp: now.toISOString(),
+      version: 'TAPAT-1.0' as const,
+    },
+    gs: {
+      functional_group: 'TX',
+      transaction_set: '826',
+      group_control_number: `GS-${controlNumber.padStart(6, '0')}`,
+    },
+    st: { transaction_set_id: '826', set_control_number: setControlNumber },
+    body: {
+      transaction_id: `TXN-${dateTag}-${tail}`,
+      beneficiary_id_masked: `CARD-XXXX-${result.card_id.slice(-4)}`,
+      beneficiary_type: result.beneficiary_type,
+      establishment_id: ESTABLISHMENT_ID,
+      pos_terminal_id: TERMINAL_ID,
+      transaction_date: now.toISOString(),
+      line_items: d.line_items_discounted,
+      gross_amount: d.gross_amount,
+      vat_removed: d.vat_removed,
+      discount_rate: result.discount_pct,
+      discount_amount: d.discount_amount,
+      net_total: d.net_total,
+      discount_type: d.discount_type,
+      bnpc_weekly_used: d.bnpc_allowed,
+      bnpc_weekly_remaining: result.weekly_remaining_after,
+      receipt_number: `OR-${dateTag}-${tail}`,
+    },
+    se: { segment_count: 8, set_control_number: setControlNumber },
+  };
+}
+
+/**
+ * Posts the completed discounted sale to the Hub as an EDI 826 (tax-information
+ * exchange) so it reaches the Government Portal for compliance reporting — the
+ * same post-payment step honeycoffee performs. Routed through the backend relay
+ * for the same mixed-content/CORS reasons as verification.
+ *
+ * Fire-and-forget: a failed 826 must never block the customer's receipt, so the
+ * relay call runs in the background (errors are logged, not thrown) and the
+ * client-built receipt is returned synchronously.
+ */
+export function recordTapatTransaction(result: TapatApprovedResult): TapatReceipt {
+  const controlNumber = nextControlNumber();
+  const envelope = build826Envelope(result, controlNumber);
+
+  fetch(`${API_URL}/api/edi/relay`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${AUTH_TOKEN}` },
+    body: JSON.stringify({
+      url: `${HUB_URL}/api/edi/receive`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-EDI-Sender-ID': ESTABLISHMENT_ID },
+      body: JSON.stringify(envelope),
+    }),
+  }).catch((err) => console.warn('[tapat] 826 dispatch failed:', err));
+
+  const d = result.discount;
+  return {
+    receipt_number: envelope.body.receipt_number,
+    transaction_id: envelope.body.transaction_id,
+    card_id: result.card_id,
+    beneficiary_type: result.beneficiary_type,
+    gross_amount: d.gross_amount,
+    vat_removed: d.vat_removed,
+    discount_amount: d.discount_amount,
+    net_total: d.net_total,
+    transacted_at: envelope.isa.timestamp,
+  };
+}
+
 /** Formats a peso amount with two decimals. */
 export function formatPeso(n: number): string {
   return `₱${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
