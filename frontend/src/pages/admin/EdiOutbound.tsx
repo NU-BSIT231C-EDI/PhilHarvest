@@ -117,6 +117,24 @@ export default function EdiOutbound() {
       const rawBoxes = (p.boxes as Array<{ line_items: Array<Record<string, unknown>> }> | undefined) ?? [];
       const items = rawBoxes.flatMap((b) => b.line_items ?? []);
       if (items.length) setLines856(items.map((l, i) => ({ line_number: String(l.line_number ?? i + 1), part_number: (l.part_number as string) ?? "", part_description: (l.part_description as string) ?? "", shipped_quantity: String(l.shipped_quantity ?? 0), quantity_uom: (l.quantity_uom as string) ?? "KG" })));
+    } else if (prefill.ediType === "810") {
+      if (p.invoice_number) setInvoiceNumber(p.invoice_number as string);
+      if (p.invoice_date)   setInvoiceDate(p.invoice_date as string);
+      if (p.po_number)      setPoNumber810(p.po_number as string);
+      if (p.po_date)        setPoDate810(p.po_date as string);
+      if (p.manufacturer_id) setSelectedPartnerId(String(p.manufacturer_id));
+      if (p.bill_to_name)   setBillToName(p.bill_to_name as string);
+      const rawLines = (p.line_items as Array<Record<string, unknown>> | undefined) ?? [];
+      if (rawLines.length) setLines810(rawLines.map((l, i) => ({
+        ...empty810Line(i + 1),
+        line_number:       String(l.line_number    ?? i + 1),
+        po_line_number:    String(l.po_line_number ?? l.line_number ?? i + 1),
+        part_number:       (l.part_number      as string) ?? '',
+        part_description:  (l.part_description as string) ?? '',
+        invoiced_quantity: String(l.invoiced_quantity ?? 0),
+        quantity_uom:      (l.quantity_uom     as string) ?? 'KG',
+        unit_price:        String(l.unit_price  ?? '0.00'),
+      })));
     } else if (prefill.ediType === "204") {
       if (p.load_tender_id) setLoadTenderId(p.load_tender_id as string);
       if (p.pickup_date) setPickupDate(p.pickup_date as string);

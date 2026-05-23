@@ -136,6 +136,38 @@ function build204Prefill(doc: EdiDoc): Record<string, unknown> {
   };
 }
 
+function build810Prefill(doc: EdiDoc): Record<string, unknown> {
+  const d = doc.parsedData ?? {};
+  const today = new Date().toISOString().slice(0, 10);
+  const rawLines  = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
+  const rawBillTo = d.ship_to_address as Record<string, string> | null | undefined;
+
+  return {
+    invoice_number: `INV-${today}-001`,
+    invoice_date:   today,
+    po_number:      (d.po_number as string | undefined) ?? '',
+    po_date:        (d.po_date   as string | undefined) ?? today,
+    manufacturer_id: doc.partnerId,
+    bill_to_name:   rawBillTo?.company_name ?? '',
+    bill_to_address: {
+      street:      rawBillTo?.street      ?? '',
+      city:        rawBillTo?.city        ?? '',
+      state:       rawBillTo?.state       ?? '',
+      postal_code: rawBillTo?.postal_code ?? '',
+      country:     rawBillTo?.country     ?? 'PH',
+    },
+    line_items: rawLines.map((li, i) => ({
+      line_number:      String(li.line_number ?? i + 1),
+      po_line_number:   String(li.line_number ?? i + 1),
+      part_number:      (li.part_number      as string | undefined) ?? '',
+      part_description: (li.part_description as string | undefined) ?? '',
+      invoiced_quantity: Number(li.quantity ?? 0),
+      quantity_uom:     (li.quantity_uom     as string | undefined) ?? 'EA',
+      unit_price:       Number(li.unit_price ?? 0),
+    })),
+  };
+}
+
 function build855Prefill(doc: EdiDoc): Record<string, unknown> {
   const d = doc.parsedData ?? {};
   const today = new Date().toISOString().slice(0, 10);
@@ -196,6 +228,12 @@ export default function EdiTransactions() {
     } finally {
       setRetrying(null);
     }
+  }
+
+  function goToOutboundWith810(doc: EdiDoc) {
+    setPrefill({ ediType: "810", body: build810Prefill(doc), sourceDescription: `From 850 ${doc.id}` });
+    setSelected(null);
+    navigate("/admin/edi/outbound");
   }
 
   function goToOutboundWith204(doc: EdiDoc) {
@@ -313,6 +351,9 @@ export default function EdiTransactions() {
                             <Button size="sm" variant="outline" className="text-xs h-7 px-2 gap-0.5 border-green-300 text-green-700 hover:bg-green-50" onClick={() => goToOutboundWith855(doc)} title="Pre-fill 855 ACK from this PO" data-testid={`button-send855-${doc.id}`}>
                               <ArrowRight className="w-3 h-3" />855
                             </Button>
+                            <Button size="sm" variant="outline" className="text-xs h-7 px-2 gap-0.5 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => goToOutboundWith810(doc)} title="Pre-fill 810 Invoice from this PO" data-testid={`button-send810-${doc.id}`}>
+                              <ArrowRight className="w-3 h-3" />810
+                            </Button>
                             <Button size="sm" variant="outline" className="text-xs h-7 px-2 gap-0.5 border-orange-300 text-orange-700 hover:bg-orange-50" onClick={() => goToOutboundWith204(doc)} title="Pre-fill 204 Load Tender from this PO" data-testid={`button-send204-${doc.id}`}>
                               <ArrowRight className="w-3 h-3" />204
                             </Button>
@@ -364,6 +405,9 @@ export default function EdiTransactions() {
                       </Button>
                       <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700" onClick={() => goToOutboundWith855(selected)} data-testid="button-send855-dialog">
                         <ArrowRight className="w-3.5 h-3.5" />Send 855 ACK
+                      </Button>
+                      <Button size="sm" className="gap-1.5 bg-amber-600 hover:bg-amber-700" onClick={() => goToOutboundWith810(selected)} data-testid="button-send810-dialog">
+                        <ArrowRight className="w-3.5 h-3.5" />Send 810 Invoice
                       </Button>
                       <Button size="sm" className="gap-1.5 bg-orange-600 hover:bg-orange-700" onClick={() => goToOutboundWith204(selected)} data-testid="button-send204-dialog">
                         <ArrowRight className="w-3.5 h-3.5" />Send 204 Load Tender
