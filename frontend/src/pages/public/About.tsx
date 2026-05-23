@@ -2,12 +2,12 @@ import { Leaf, Heart, Globe, Award } from "lucide-react";
 import PublicLayout from "@/layouts/PublicLayout";
 
 const team = [
-  { name: "Nicole Quimpan", role: "Lead Programmer", initials: "NQ", bio: "Contributes to platform development and ensures a seamless experience for farmers and buyers alike." },
+  { name: "Nichole Quimpan", role: "Lead Programmer", initials: "NQ", bio: "Contributes to platform development and ensures a seamless experience for farmers and buyers alike." },
   { name: "Avril Matanguihan", role: "Leader", initials: "AM", bio: "Leads the PhilHarvest team with a vision to connect Filipino farmers with buyers across the country." },
   { name: "Adhonyz Dagle", role: "Frontend Developer", initials: "AD", bio: "Supports the team in building and maintaining the PhilHarvest marketplace ecosystem." },
   { name: "Ayanna Lingahan", role: "Frontend Developer", initials: "AL", bio: "Helps drive community engagement and ensures the platform meets the needs of Filipino farmers." },
-  { name: "Dian Sharysse", role: "Frontend Developer", initials: "DS", bio: "Dedicated to improving the user experience and expanding PhilHarvest's reach across the Philippines." },
-  { name: "Iggy Quibo", role: "Documentation", initials: "IQ", bio: "Works on platform operations and supports the team in delivering fresh produce from farm to table." },
+  { name: "Bea Dian", role: "Frontend Developer", initials: "DS", bio: "Dedicated to improving the user experience and expanding PhilHarvest's reach across the Philippines." },
+  { name: "Iggy Quiobo", role: "Documentation", initials: "IQ", bio: "Works on platform operations and supports the team in delivering fresh produce from farm to table." },
 ];
 
 export default function About() {
