@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
-import { ArrowLeft, ArrowRight, Plus, Trash2, CheckCircle, Building2, FileText } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle, Building2, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import { useToast } from "@/hooks/use-toast";
 import { createTradingPartner, updateTradingPartner, type TradingPartner } from "@/services/ediApi";
-import { useContractStore } from "@/store";
+import { useContractStore, useProductStore } from "@/store";
 import { sellers } from "@/data/mockData";
 import type { Contract, ContractStatus } from "@/types";
 
@@ -34,12 +34,12 @@ interface Step1Form {
   api_endpoint: string; auth_token: string;
 }
 
-interface ProductRow { productName: string; quantity: string; unit: string; agreedPrice: string }
+type ProductOverride = { included: boolean; quantity: string; agreedPrice: string };
 
 interface Step2Form {
   startDate: string; endDate: string;
   allSellers: boolean; authorizedSellers: string[];
-  products: ProductRow[];
+  products: Record<string, ProductOverride>;
   paymentTerms: string; deliverySchedule: string;
   maxPoQuantity: string; notes: string;
 }
@@ -52,11 +52,9 @@ const emptyStep1: Step1Form = {
 
 const emptyStep2: Step2Form = {
   startDate: "", endDate: "", allSellers: true, authorizedSellers: [],
-  products: [{ productName: "", quantity: "", unit: "kg", agreedPrice: "" }],
+  products: {},
   paymentTerms: "Net 30", deliverySchedule: "Monthly", maxPoQuantity: "", notes: "",
 };
-
-const UNITS = ["kg", "g", "bundle", "piece", "case", "box", "bag", "dozen"];
 
 function generateId(): string {
   return "ctr-" + Math.random().toString(36).slice(2, 10);
@@ -84,6 +82,7 @@ export default function AdminOnboarding() {
 
   const { toast } = useToast();
   const { contracts, addContract, updateContract } = useContractStore();
+  const allStoreProducts = useProductStore((s) => s.products);
 
   const [step, setStep]         = useState<1 | 2>(1);
   const [saving, setSaving]     = useState(false);
@@ -91,6 +90,12 @@ export default function AdminOnboarding() {
   const [s2, setS2]             = useState<Step2Form>(emptyStep2);
   const [s1errors, setS1Errors] = useState<Partial<Record<keyof Step1Form, string>>>({});
   const [s2errors, setS2Errors] = useState<Partial<Record<string, string>>>({});
+
+  const availableProducts = (
+    s2.allSellers
+      ? allStoreProducts
+      : allStoreProducts.filter((p) => s2.authorizedSellers.includes(p.sellerId))
+  ).filter((p) => p.status === "active");
 
   // Pre-fill when editing a draft
   const editingContract = editId ? contracts.find((c) => c.id === editId) : null;
@@ -102,12 +107,12 @@ export default function AdminOnboarding() {
       endDate:   editingContract.endDate,
       allSellers: false,
       authorizedSellers: [editingContract.sellerId],
-      products: editingContract.products.map((p) => ({
-        productName: p.productName,
-        quantity:    String(p.quantity),
-        unit:        p.unit,
-        agreedPrice: String(p.unitPrice),
-      })),
+      products: Object.fromEntries(
+        editingContract.products.map((p) => [
+          p.productId,
+          { included: true, quantity: String(p.quantity), agreedPrice: String(p.unitPrice) },
+        ])
+      ),
       paymentTerms:     editingContract.paymentTerms,
       deliverySchedule: "Monthly",
       maxPoQuantity:    "",
@@ -141,10 +146,10 @@ export default function AdminOnboarding() {
     if (!s2.allSellers && s2.authorizedSellers.length === 0) {
       errs.sellers = "Select at least one seller";
     }
-    const hasValidProduct = s2.products.some(
-      (p) => p.productName.trim() && p.quantity.trim() && p.agreedPrice.trim()
+    const hasValidProduct = availableProducts.some(
+      (p) => s2.products[p.id]?.included && s2.products[p.id]?.quantity?.trim() && s2.products[p.id]?.agreedPrice?.trim()
     );
-    if (!hasValidProduct) errs.products = "Add at least one product with name, qty, and price";
+    if (!hasValidProduct) errs.products = "Select at least one product and fill in qty and price";
     // One active contract per company
     if (!editingContract) {
       const conflict = contracts.find(
@@ -174,9 +179,17 @@ export default function AdminOnboarding() {
       }
 
       // Step 2: build contract and save to store
-      const validProducts = s2.products.filter((p) => p.productName.trim() && p.quantity.trim());
+      const validProducts = availableProducts
+        .filter((p) => s2.products[p.id]?.included && s2.products[p.id]?.quantity?.trim())
+        .map((p) => ({
+          productId:   p.id,
+          productName: p.name,
+          quantity:    Number(s2.products[p.id].quantity),
+          unit:        p.unit,
+          unitPrice:   Number(s2.products[p.id].agreedPrice || p.price),
+        }));
       const totalValue = validProducts.reduce(
-        (sum, p) => sum + (Number(p.quantity) * Number(p.agreedPrice || 0)), 0
+        (sum, p) => sum + p.quantity * p.unitPrice, 0
       );
 
       const sellerIds   = s2.allSellers ? sellers.map((s) => s.id) : s2.authorizedSellers;
@@ -195,13 +208,7 @@ export default function AdminOnboarding() {
         companyName:            s1.company_name,
         sellerId,
         sellerName,
-        products: validProducts.map((p, i) => ({
-          productId:   `p-new-${i}`,
-          productName: p.productName,
-          quantity:    Number(p.quantity),
-          unit:        p.unit,
-          unitPrice:   Number(p.agreedPrice),
-        })),
+        products: validProducts,
         totalContractValue:     totalValue,
         startDate:              s2.startDate,
         endDate:                s2.endDate,
@@ -243,19 +250,37 @@ export default function AdminOnboarding() {
   }
 
   // ─── Step 2 helpers ────────────────────────────────────────────────────────
-  function addProductRow() {
-    setS2((p) => ({ ...p, products: [...p.products, { productName: "", quantity: "", unit: "kg", agreedPrice: "" }] }));
-  }
-  function removeProductRow(i: number) {
-    setS2((p) => ({ ...p, products: p.products.filter((_, idx) => idx !== i) }));
-  }
-  function updateProductRow(i: number, key: keyof ProductRow, value: string) {
+  function toggleProductIncluded(productId: string) {
     setS2((p) => ({
       ...p,
-      products: p.products.map((row, idx) => idx === i ? { ...row, [key]: value } : row),
+      products: {
+        ...p.products,
+        [productId]: {
+          included:    !(p.products[productId]?.included ?? false),
+          quantity:    p.products[productId]?.quantity ?? "",
+          agreedPrice: p.products[productId]?.agreedPrice ?? "",
+        },
+      },
     }));
     if (s2errors.products) setS2Errors((p) => { const e = { ...p }; delete e.products; return e; });
   }
+
+  function updateProductOverride(productId: string, key: "quantity" | "agreedPrice", value: string) {
+    setS2((p) => ({
+      ...p,
+      products: {
+        ...p.products,
+        [productId]: {
+          included:    p.products[productId]?.included ?? false,
+          quantity:    p.products[productId]?.quantity ?? "",
+          agreedPrice: p.products[productId]?.agreedPrice ?? "",
+          [key]: value,
+        },
+      },
+    }));
+    if (s2errors.products) setS2Errors((p) => { const e = { ...p }; delete e.products; return e; });
+  }
+
   function toggleSeller(id: string) {
     setS2((p) => ({
       ...p,
@@ -454,45 +479,64 @@ export default function AdminOnboarding() {
 
               {/* Products */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <Label>Products <span className="text-destructive">*</span></Label>
-                  <Button type="button" size="sm" variant="outline" className="gap-1 h-7 text-xs" onClick={addProductRow}>
-                    <Plus className="w-3 h-3" /> Add Row
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-12 gap-1 px-1">
-                    {["Product Name", "Qty/Mo", "Unit", "Price (₱)", ""].map((h) => (
-                      <div key={h} className={`text-xs font-semibold text-muted-foreground uppercase ${h === "Product Name" ? "col-span-5" : h === "" ? "col-span-1" : "col-span-2"}`}>{h}</div>
-                    ))}
+                <Label>Products <span className="text-destructive">*</span></Label>
+                {availableProducts.length === 0 ? (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {!s2.allSellers && s2.authorizedSellers.length === 0
+                      ? "Select a seller above to see their available products."
+                      : "No active products found for the selected seller(s)."}
+                  </p>
+                ) : (
+                  <div className="mt-2 border border-border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="w-8 px-3 py-2" />
+                          <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Product</th>
+                          <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Unit</th>
+                          <th className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">Qty / Mo</th>
+                          <th className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">Price (₱)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {availableProducts.map((product) => {
+                          const override = s2.products[product.id];
+                          const included = override?.included ?? false;
+                          return (
+                            <tr key={product.id} className={included ? "bg-primary/5" : "hover:bg-muted/20 transition-colors"}>
+                              <td className="px-3 py-2.5">
+                                <Checkbox checked={included} onCheckedChange={() => toggleProductIncluded(product.id)} />
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <p className="font-medium leading-tight">{product.name}</p>
+                                <p className="text-xs text-muted-foreground capitalize">{product.category.replace("-", " ")} · {product.sellerName}</p>
+                              </td>
+                              <td className="px-3 py-2.5 text-muted-foreground">{product.unit}</td>
+                              <td className="px-3 py-2.5">
+                                <Input
+                                  type="number" min={0} placeholder="500"
+                                  value={override?.quantity ?? ""}
+                                  disabled={!included}
+                                  onChange={(e) => updateProductOverride(product.id, "quantity", e.target.value)}
+                                  className="h-7 text-sm w-24 ml-auto"
+                                />
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <Input
+                                  type="number" min={0} placeholder={String(product.price)}
+                                  value={override?.agreedPrice ?? ""}
+                                  disabled={!included}
+                                  onChange={(e) => updateProductOverride(product.id, "agreedPrice", e.target.value)}
+                                  className="h-7 text-sm w-24 ml-auto"
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                  {s2.products.map((row, i) => (
-                    <div key={i} className="grid grid-cols-12 gap-1 items-center">
-                      <div className="col-span-5">
-                        <Input placeholder="e.g. Benguet Tomatoes" value={row.productName} onChange={(e) => updateProductRow(i, "productName", e.target.value)} className="h-8 text-sm" />
-                      </div>
-                      <div className="col-span-2">
-                        <Input type="number" placeholder="500" min={0} value={row.quantity} onChange={(e) => updateProductRow(i, "quantity", e.target.value)} className="h-8 text-sm" />
-                      </div>
-                      <div className="col-span-2">
-                        <Select value={row.unit} onValueChange={(v) => updateProductRow(i, "unit", v)}>
-                          <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                          <SelectContent>{UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </div>
-                      <div className="col-span-2">
-                        <Input type="number" placeholder="75" min={0} value={row.agreedPrice} onChange={(e) => updateProductRow(i, "agreedPrice", e.target.value)} className="h-8 text-sm" />
-                      </div>
-                      <div className="col-span-1 flex justify-center">
-                        {s2.products.length > 1 && (
-                          <button type="button" onClick={() => removeProductRow(i)} className="text-muted-foreground hover:text-destructive transition-colors">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                )}
                 {s2errors.products && <p className="text-xs text-destructive mt-1">{s2errors.products}</p>}
               </div>
 
