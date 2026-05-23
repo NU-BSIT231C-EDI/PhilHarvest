@@ -399,9 +399,17 @@ function PurchaseOrderView({ doc }: { doc: EdiDoc }) {
 // 855 stores it in BAK03 (BAK*{01}*{02}*{po_number}*...)
 function extractPoFromX12(raw: string | undefined): string | undefined {
   if (!raw) return undefined;
-  const match = raw.match(/(?:BEG|BAK)\*[^*]*\*[^*]*\*([^*~\r\n]+)/);
-  const val = match?.[1]?.trim();
-  return val || undefined;
+  // 850: BEG*xx*xx*{PO} (BEG03)
+  // 855: BAK*xx*xx*{PO} (BAK03)
+  let match = raw.match(/(?:BEG|BAK)\*[^*]*\*[^*]*\*([^*~\r\n]+)/);
+  if (match?.[1]?.trim()) return match[1].trim();
+  // 856: PRF*{PO} (PRF01)
+  match = raw.match(/PRF\*([^*~\r\n]+)/);
+  if (match?.[1]?.trim()) return match[1].trim();
+  // 810: BIG*{date}*{inv}*{date}*{PO} (BIG04)
+  match = raw.match(/BIG\*[^*]*\*[^*]*\*[^*]*\*([^*~\r\n]+)/);
+  if (match?.[1]?.trim()) return match[1].trim();
+  return undefined;
 }
 
 function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } {
