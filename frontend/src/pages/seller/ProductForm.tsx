@@ -85,7 +85,7 @@ export default function ProductForm() {
     try {
       const payload = {
         ...data,
-        weight_kg: data.weight_kg ?? null,
+        weight_kg: data.weight_kg ?? undefined,
         image_url: imagePreview || undefined,
       };
 
