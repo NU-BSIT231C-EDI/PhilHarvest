@@ -1,10 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
-import { Search, Download, RefreshCw, ArrowRight } from "lucide-react";
+import { Search, Download, RefreshCw, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import StatusBadge from "@/components/shared/StatusBadge";
@@ -37,6 +35,23 @@ interface EdiDoc {
   partnerId: string;
 }
 
+interface Thread {
+  po: EdiDoc;
+  docs855: EdiDoc[];
+  docs204: EdiDoc[];
+  docs990: EdiDoc[];
+  docs856: EdiDoc[];
+  docs810: EdiDoc[];
+}
+
+interface ThreadState {
+  can855: boolean;
+  can204: boolean;
+  can856: boolean;
+  can810: boolean;
+  isRejected: boolean;
+}
+
 const typeColors: Record<string, string> = {
   "850": "bg-blue-50 text-blue-700 border-blue-200",
   "855": "bg-green-50 text-green-700 border-green-200",
@@ -45,6 +60,13 @@ const typeColors: Record<string, string> = {
   "997": "bg-emerald-50 text-emerald-700 border-emerald-200",
   "204": "bg-orange-50 text-orange-700 border-orange-200",
   "990": "bg-teal-50 text-teal-700 border-teal-200",
+};
+
+const sendButtonStyle: Record<string, string> = {
+  "855": "border-green-300 text-green-700 hover:bg-green-50",
+  "856": "border-purple-300 text-purple-700 hover:bg-purple-50",
+  "810": "border-amber-300 text-amber-700 hover:bg-amber-50",
+  "204": "border-orange-300 text-orange-700 hover:bg-orange-50",
 };
 
 function mapTransaction(t: BackendTransaction): EdiDoc {
@@ -87,7 +109,6 @@ function build856Prefill(doc: EdiDoc): Record<string, unknown> {
   const today = new Date().toISOString().slice(0, 10);
   const rawShipTo = d.ship_to_address as Record<string, string> | null | undefined;
   const rawLines  = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
-
   return {
     asn_number: `ASN-${today}-001`,
     po_number:  (d.po_number  as string | undefined) ?? '',
@@ -120,7 +141,6 @@ function build204Prefill(doc: EdiDoc): Record<string, unknown> {
   const d = doc.parsedData ?? {};
   const today = new Date().toISOString().slice(0, 10);
   const rawShipTo = d.ship_to_address as Record<string, string> | null | undefined;
-
   return {
     load_tender_id: `LOAD-${today}-001`,
     consignee_company_name: rawShipTo?.company_name ?? '',
@@ -136,12 +156,31 @@ function build204Prefill(doc: EdiDoc): Record<string, unknown> {
   };
 }
 
+function build855Prefill(doc: EdiDoc): Record<string, unknown> {
+  const d = doc.parsedData ?? {};
+  const today = new Date().toISOString().slice(0, 10);
+  const rawLines = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
+  return {
+    po_number:           (d.po_number as string | undefined) ?? '',
+    po_date:             (d.po_date   as string | undefined) ?? today,
+    manufacturer_id:     doc.partnerId,
+    acknowledgment_code: 'AA',
+    seller_address:      PHILHARVEST_ADDRESS,
+    line_acknowledgments: rawLines.map((li, i) => ({
+      line_number:         String(li.line_number ?? i + 1),
+      acknowledgment_code: 'AA',
+      accepted_quantity:   Number(li.quantity ?? 0),
+      quantity_uom:        (li.quantity_uom as string | undefined) ?? 'EA',
+      part_number:         (li.part_number  as string | undefined) ?? '',
+    })),
+  };
+}
+
 function build810Prefill(doc: EdiDoc): Record<string, unknown> {
   const d = doc.parsedData ?? {};
   const today = new Date().toISOString().slice(0, 10);
   const rawLines  = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
   const rawBillTo = d.ship_to_address as Record<string, string> | null | undefined;
-
   return {
     invoice_number: `INV-${today}-001`,
     invoice_date:   today,
@@ -168,36 +207,229 @@ function build810Prefill(doc: EdiDoc): Record<string, unknown> {
   };
 }
 
-function build855Prefill(doc: EdiDoc): Record<string, unknown> {
-  const d = doc.parsedData ?? {};
-  const today = new Date().toISOString().slice(0, 10);
-  const rawLines = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
+// ── Thread building ──────────────────────────────────────────────────────────
+
+function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } {
+  const inbound850s = docs
+    .filter((d) => d.type === "850" && d.direction === "inbound")
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  const used = new Set<string>();
+  inbound850s.forEach((d) => used.add(d.id));
+
+  const threads: Thread[] = inbound850s.map((po) => {
+    const poNum = po.parsedData?.po_number as string | undefined;
+
+    function byPoNumber(d: EdiDoc) {
+      if (used.has(d.id)) return false;
+      const dPo = d.parsedData?.po_number as string | undefined;
+      return !!poNum && !!dPo && dPo === poNum;
+    }
+
+    function byPartner(type: string) {
+      return (d: EdiDoc) => !used.has(d.id) && d.type === type && d.partnerId === po.partnerId;
+    }
+
+    function take(filter: (d: EdiDoc) => boolean): EdiDoc[] {
+      const found = docs.filter(filter);
+      found.forEach((d) => used.add(d.id));
+      return found;
+    }
+
+    return {
+      po,
+      docs855: take((d) => byPoNumber(d) && d.type === "855"),
+      docs856: take((d) => byPoNumber(d) && d.type === "856"),
+      docs810: take((d) => byPoNumber(d) && d.type === "810"),
+      docs204: take(byPartner("204")),
+      docs990: take(byPartner("990")),
+    };
+  });
+
+  const orphans = docs.filter((d) => !used.has(d.id));
+  return { threads, orphans };
+}
+
+function getThreadState(t: Thread): ThreadState {
+  const latest855 = [...t.docs855].sort((a, b) => b.date.localeCompare(a.date))[0];
+  const has855Delivered = latest855?.status === "delivered";
+  const isRejected =
+    has855Delivered &&
+    (latest855?.parsedData?.acknowledgment_code as string | undefined) === "RE";
+  const has856 = t.docs856.length > 0;
 
   return {
-    po_number:           (d.po_number as string | undefined) ?? '',
-    po_date:             (d.po_date   as string | undefined) ?? today,
-    manufacturer_id:     doc.partnerId,
-    acknowledgment_code: 'AA',
-    seller_address:      PHILHARVEST_ADDRESS,
-    line_acknowledgments: rawLines.map((li, i) => ({
-      line_number:         String(li.line_number ?? i + 1),
-      acknowledgment_code: 'AA',
-      accepted_quantity:   Number(li.quantity ?? 0),
-      quantity_uom:        (li.quantity_uom as string | undefined) ?? 'EA',
-      part_number:         (li.part_number  as string | undefined) ?? '',
-    })),
+    can855: t.docs855.length === 0,
+    can204: has855Delivered && !isRejected && t.docs204.length === 0,
+    can856: has855Delivered && !isRejected && t.docs856.length === 0,
+    can810: has856 && t.docs810.length === 0,
+    isRejected,
   };
 }
 
+// ── Sub-components ───────────────────────────────────────────────────────────
+
+function DocStep({
+  docType, label, docs, canSend, onSend, onView, locked, inbound,
+}: {
+  docType: string;
+  label: string;
+  docs: EdiDoc[];
+  canSend: boolean;
+  onSend?: () => void;
+  onView: (doc: EdiDoc) => void;
+  locked?: boolean;
+  inbound?: boolean;
+}) {
+  const lastDoc = docs[docs.length - 1];
+
+  return (
+    <div
+      className={`flex items-center gap-3 px-5 py-2.5 text-sm ${locked ? "opacity-35 pointer-events-none" : ""}`}
+    >
+      <div className="w-3 shrink-0 flex flex-col items-center">
+        <div className="w-px flex-1 bg-border" />
+        <div className="w-1.5 h-1.5 rounded-full bg-border" />
+        <div className="w-px flex-1 bg-border" />
+      </div>
+
+      <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs font-bold shrink-0 ${typeColors[docType] ?? "bg-muted"}`}>
+        {docType}
+      </span>
+
+      <span className="text-xs text-foreground/70 flex-1">
+        {label}
+        {inbound && <span className="ml-1 text-xs text-muted-foreground">(received)</span>}
+      </span>
+
+      <div className="flex items-center gap-2 shrink-0">
+        {lastDoc ? (
+          <>
+            <StatusBadge status={lastDoc.status} />
+            <span className="text-xs text-muted-foreground whitespace-nowrap">{lastDoc.date}</span>
+            <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => onView(lastDoc)}>
+              View
+            </Button>
+          </>
+        ) : canSend && onSend ? (
+          <Button
+            size="sm" variant="outline"
+            className={`h-6 text-xs px-2 gap-0.5 ${sendButtonStyle[docType] ?? ""}`}
+            onClick={onSend}
+          >
+            <ArrowRight className="w-3 h-3" />Send {docType}
+          </Button>
+        ) : (
+          <span className="text-xs text-muted-foreground italic">Awaiting</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ThreadRow({
+  thread, expanded, onToggle, onView, actions,
+}: {
+  thread: Thread;
+  expanded: boolean;
+  onToggle: () => void;
+  onView: (doc: EdiDoc) => void;
+  actions: {
+    send855: (po: EdiDoc) => void;
+    send204: (po: EdiDoc) => void;
+    send856: (po: EdiDoc) => void;
+    send810: (po: EdiDoc) => void;
+  };
+}) {
+  const state = getThreadState(thread);
+  const { po } = thread;
+  const poNumber = po.parsedData?.po_number as string | undefined;
+
+  return (
+    <div className="border border-border rounded-xl overflow-hidden">
+      {/* 850 header */}
+      <button
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+        onClick={onToggle}
+      >
+        {expanded
+          ? <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
+          : <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />}
+
+        <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs font-bold shrink-0 ${typeColors["850"]}`}>
+          850
+        </span>
+
+        <div className="flex-1 min-w-0">
+          <span className="text-sm font-semibold text-foreground">{po.company}</span>
+          {poNumber && (
+            <span className="text-xs text-muted-foreground ml-2 font-mono">PO# {poNumber}</span>
+          )}
+        </div>
+
+        <StatusBadge status={po.status} />
+        <span className="text-xs text-muted-foreground whitespace-nowrap">{po.date}</span>
+        <Button
+          size="sm" variant="ghost" className="h-6 text-xs px-2 shrink-0"
+          onClick={(e) => { e.stopPropagation(); onView(po); }}
+        >
+          View
+        </Button>
+      </button>
+
+      {/* Thread steps */}
+      {expanded && (
+        <div className="border-t border-border bg-muted/10 divide-y divide-border/40 pb-1">
+          {state.isRejected && (
+            <div className="px-5 py-2 bg-red-50 border-b border-red-200">
+              <p className="text-xs text-red-700 font-medium">
+                855 was rejected — subsequent steps are unavailable
+              </p>
+            </div>
+          )}
+          <DocStep
+            docType="855" label="PO Acknowledgment"
+            docs={thread.docs855} canSend={state.can855}
+            onSend={() => actions.send855(po)} onView={onView}
+          />
+          <DocStep
+            docType="204" label="Load Tender"
+            docs={thread.docs204} canSend={state.can204}
+            onSend={() => actions.send204(po)} onView={onView}
+            locked={state.isRejected}
+          />
+          <DocStep
+            docType="990" label="Load Tender Response"
+            docs={thread.docs990} canSend={false}
+            onView={onView} locked={state.isRejected} inbound
+          />
+          <DocStep
+            docType="856" label="Advance Ship Notice"
+            docs={thread.docs856} canSend={state.can856}
+            onSend={() => actions.send856(po)} onView={onView}
+            locked={state.isRejected}
+          />
+          <DocStep
+            docType="810" label="Invoice"
+            docs={thread.docs810} canSend={state.can810}
+            onSend={() => actions.send810(po)} onView={onView}
+            locked={state.isRejected || (!state.can810 && thread.docs810.length === 0 && thread.docs856.length === 0)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
+
 export default function EdiTransactions() {
-  const [allDocs, setAllDocs]           = useState<EdiDoc[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [retrying, setRetrying]         = useState<number | null>(null);
-  const [search, setSearch]             = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [typeFilter, setTypeFilter]     = useState("all");
-  const [dirFilter, setDirFilter]       = useState("all");
-  const [selected, setSelected]         = useState<EdiDoc | null>(null);
+  const [allDocs, setAllDocs]   = useState<EdiDoc[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [retrying, setRetrying] = useState<number | null>(null);
+  const [search, setSearch]     = useState("");
+  const [selected, setSelected] = useState<EdiDoc | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const { setPrefill } = useEdiPrefill();
   const [, navigate] = useLocation();
@@ -211,7 +443,6 @@ export default function EdiTransactions() {
   }, [toast]);
 
   useEffect(() => { loadDocs(); }, [loadDocs]);
-
   useEffect(() => {
     const id = window.setInterval(loadDocs, 10_000);
     return () => window.clearInterval(id);
@@ -221,157 +452,133 @@ export default function EdiTransactions() {
     setRetrying(doc.backendId);
     try {
       await retryTransmission(doc.backendId);
-      toast({ title: "Retry queued", description: `Transaction ${doc.id} has been queued for retry.` });
+      toast({ title: "Retry queued", description: `Transaction ${doc.id} queued for retry.` });
       loadDocs();
     } catch (err: unknown) {
-      toast({ title: "Retry failed", description: err instanceof Error ? err.message : 'Unknown error', variant: "destructive" });
+      toast({ title: "Retry failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
     } finally {
       setRetrying(null);
     }
   }
 
-  function goToOutboundWith810(doc: EdiDoc) {
-    setPrefill({ ediType: "810", body: build810Prefill(doc), sourceDescription: `From 850 ${doc.id}` });
-    setSelected(null);
+  function prefillAndGo(ediType: "855" | "856" | "810" | "204", body: Record<string, unknown>, sourceId: string) {
+    setPrefill({ ediType, body, sourceDescription: `From 850 ${sourceId}` });
     navigate("/admin/edi/outbound");
   }
 
-  function goToOutboundWith204(doc: EdiDoc) {
-    setPrefill({ ediType: "204", body: build204Prefill(doc), sourceDescription: `From 850 ${doc.id}` });
-    setSelected(null);
-    navigate("/admin/edi/outbound");
-  }
+  const { threads, orphans } = buildThreads(allDocs);
 
-  function goToOutboundWith856(doc: EdiDoc) {
-    setPrefill({ ediType: "856", body: build856Prefill(doc), sourceDescription: `From 850 ${doc.id}` });
-    setSelected(null);
-    navigate("/admin/edi/outbound");
-  }
-
-  function goToOutboundWith855(doc: EdiDoc) {
-    setPrefill({ ediType: "855", body: build855Prefill(doc), sourceDescription: `From 850 ${doc.id}` });
-    setSelected(null);
-    navigate("/admin/edi/outbound");
-  }
-
-  const filtered = allDocs.filter((d) => {
+  const filteredThreads = threads.filter((t) => {
     const q = search.toLowerCase();
-    const matchSearch = !q || d.id.toLowerCase().includes(q) || d.company.toLowerCase().includes(q) || d.type.includes(q);
-    const matchStatus = statusFilter === "all" || d.status === statusFilter;
-    const matchType   = typeFilter   === "all" || d.type    === typeFilter;
-    const matchDir    = dirFilter    === "all" || d.direction === dirFilter;
-    return matchSearch && matchStatus && matchType && matchDir;
+    if (!q) return true;
+    const poNum = (t.po.parsedData?.po_number as string | undefined) ?? "";
+    return (
+      t.po.company.toLowerCase().includes(q) ||
+      t.po.id.toLowerCase().includes(q) ||
+      poNum.toLowerCase().includes(q)
+    );
   });
+
+  function toggleThread(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  const actions = {
+    send855: (po: EdiDoc) => prefillAndGo("855", build855Prefill(po), po.id),
+    send204: (po: EdiDoc) => prefillAndGo("204", build204Prefill(po), po.id),
+    send856: (po: EdiDoc) => prefillAndGo("856", build856Prefill(po), po.id),
+    send810: (po: EdiDoc) => prefillAndGo("810", build810Prefill(po), po.id),
+  };
 
   return (
     <DashboardLayout role="admin" title="EDI Transaction Inbox">
       <div className="p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row gap-3">
+        {/* Toolbar */}
+        <div className="flex gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Search by Doc ID, company, or type…" className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="input-search-edi" />
+            <Input
+              placeholder="Search by company or PO number…"
+              className="pl-9" value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              data-testid="input-search-edi"
+            />
           </div>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-36" data-testid="select-edi-type"><SelectValue placeholder="Doc Type" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="850">850 — Purchase Order</SelectItem>
-              <SelectItem value="855">855 — PO Acknowledgment</SelectItem>
-              <SelectItem value="856">856 — Ship Notice</SelectItem>
-              <SelectItem value="810">810 — Invoice</SelectItem>
-              <SelectItem value="204">204 — Load Tender</SelectItem>
-              <SelectItem value="990">990 — Load Tender Response</SelectItem>
-              <SelectItem value="997">997 — Functional Ack.</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-36" data-testid="select-edi-status"><SelectValue placeholder="Status" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="delivered">Delivered</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="error">Error</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={dirFilter} onValueChange={setDirFilter}>
-            <SelectTrigger className="w-36"><SelectValue placeholder="Direction" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="inbound">Inbound</SelectItem>
-              <SelectItem value="outbound">Outbound</SelectItem>
-            </SelectContent>
-          </Select>
           <Button variant="outline" size="icon" title="Refresh" onClick={loadDocs} disabled={loading} data-testid="button-refresh-edi">
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
         </div>
 
-        <p className="text-xs text-muted-foreground">{filtered.length} document{filtered.length !== 1 ? "s" : ""} found · auto-refreshes every 10s</p>
+        <p className="text-xs text-muted-foreground">
+          {filteredThreads.length} purchase order{filteredThreads.length !== 1 ? "s" : ""} · auto-refreshes every 10s
+        </p>
 
-        <div className="bg-card border border-card-border rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Doc ID</th>
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Type</th>
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Company</th>
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Direction</th>
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">ISA Control</th>
-                  <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Status</th>
-                  <th className="text-right px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Date</th>
-                  <th className="text-right px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {loading ? (
-                  <tr><td colSpan={8} className="px-4 py-6 text-center text-xs text-muted-foreground">Loading transactions…</td></tr>
-                ) : filtered.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-6 text-center text-xs text-muted-foreground">No transactions found.</td></tr>
-                ) : filtered.map((doc) => (
-                  <tr key={doc.id} className="hover:bg-muted/30 transition-colors" data-testid={`row-txn-${doc.id}`}>
-                    <td className="px-4 py-3 font-mono text-xs font-bold text-foreground">{doc.id}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs font-bold ${typeColors[doc.type] ?? "bg-muted"}`}>{doc.type}</span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-foreground max-w-37.5 truncate">{doc.company}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={doc.direction === "inbound" ? "secondary" : "outline"} className="text-xs">{doc.direction === "inbound" ? "Inbound" : "Outbound"}</Badge>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{doc.isaControl}</td>
-                    <td className="px-4 py-3"><StatusBadge status={doc.status} /></td>
-                    <td className="px-4 py-3 text-right text-xs text-muted-foreground whitespace-nowrap">{doc.date}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center gap-1 justify-end">
-                        {doc.type === "850" && doc.direction === "inbound" && (
-                          <>
-                            <Button size="sm" variant="outline" className="text-xs h-7 px-2 gap-0.5 border-purple-300 text-purple-700 hover:bg-purple-50" onClick={() => goToOutboundWith856(doc)} title="Pre-fill 856 ASN from this PO" data-testid={`button-send856-${doc.id}`}>
-                              <ArrowRight className="w-3 h-3" />856
-                            </Button>
-                            <Button size="sm" variant="outline" className="text-xs h-7 px-2 gap-0.5 border-green-300 text-green-700 hover:bg-green-50" onClick={() => goToOutboundWith855(doc)} title="Pre-fill 855 ACK from this PO" data-testid={`button-send855-${doc.id}`}>
-                              <ArrowRight className="w-3 h-3" />855
-                            </Button>
-                            <Button size="sm" variant="outline" className="text-xs h-7 px-2 gap-0.5 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => goToOutboundWith810(doc)} title="Pre-fill 810 Invoice from this PO" data-testid={`button-send810-${doc.id}`}>
-                              <ArrowRight className="w-3 h-3" />810
-                            </Button>
-                            <Button size="sm" variant="outline" className="text-xs h-7 px-2 gap-0.5 border-orange-300 text-orange-700 hover:bg-orange-50" onClick={() => goToOutboundWith204(doc)} title="Pre-fill 204 Load Tender from this PO" data-testid={`button-send204-${doc.id}`}>
-                              <ArrowRight className="w-3 h-3" />204
-                            </Button>
-                          </>
-                        )}
-                        <Button size="sm" variant="ghost" className="text-xs h-7 px-2" onClick={() => setSelected(doc)} data-testid={`button-view-txn-${doc.id}`}>View</Button>
-                        <Button size="icon" variant="ghost" className="w-7 h-7" title="Download" disabled={!doc.raw} onClick={() => downloadRaw(doc)} data-testid={`button-dl-${doc.id}`}>
-                          <Download className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* Threads */}
+        {loading ? (
+          <div className="py-12 text-center text-xs text-muted-foreground">Loading transactions…</div>
+        ) : filteredThreads.length === 0 && !loading ? (
+          <div className="py-12 text-center text-xs text-muted-foreground">No inbound purchase orders found.</div>
+        ) : (
+          <div className="space-y-3">
+            {filteredThreads.map((thread) => (
+              <ThreadRow
+                key={thread.po.id}
+                thread={thread}
+                expanded={expanded.has(thread.po.id)}
+                onToggle={() => toggleThread(thread.po.id)}
+                onView={setSelected}
+                actions={actions}
+              />
+            ))}
           </div>
-        </div>
+        )}
 
+        {/* Orphaned docs not linked to any 850 */}
+        {orphans.length > 0 && !loading && (
+          <div className="mt-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Other Documents
+            </p>
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-border">
+                  {orphans.map((doc) => (
+                    <tr key={doc.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs font-bold text-foreground">{doc.id}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs font-bold ${typeColors[doc.type] ?? "bg-muted"}`}>
+                          {doc.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-foreground">{doc.company}</td>
+                      <td className="px-4 py-3"><StatusBadge status={doc.status} /></td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{doc.date}</td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex gap-1 justify-end">
+                          <Button size="sm" variant="ghost" className="h-7 text-xs px-2" onClick={() => setSelected(doc)} data-testid={`button-view-txn-${doc.id}`}>View</Button>
+                          <Button size="icon" variant="ghost" className="w-7 h-7" disabled={!doc.raw} onClick={() => downloadRaw(doc)} data-testid={`button-dl-${doc.id}`}>
+                            <Download className="w-3.5 h-3.5" />
+                          </Button>
+                          {doc.backendStatus === "FAILED" && doc.direction === "outbound" && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs px-2 text-amber-700 border-amber-300 hover:bg-amber-50" disabled={retrying === doc.backendId} onClick={() => handleRetry(doc)} data-testid={`button-retry-${doc.id}`}>
+                              <RefreshCw className={`w-3.5 h-3.5 ${retrying === doc.backendId ? "animate-spin" : ""}`} />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Detail dialog */}
         <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
@@ -398,29 +605,13 @@ export default function EdiTransactions() {
                   </div>
                 )}
                 <div className="flex gap-2 flex-wrap pt-1">
-                  {selected.type === "850" && selected.direction === "inbound" && (
-                    <>
-                      <Button size="sm" className="gap-1.5 bg-purple-600 hover:bg-purple-700" onClick={() => goToOutboundWith856(selected)} data-testid="button-send856-dialog">
-                        <ArrowRight className="w-3.5 h-3.5" />Send 856 ASN
-                      </Button>
-                      <Button size="sm" className="gap-1.5 bg-green-600 hover:bg-green-700" onClick={() => goToOutboundWith855(selected)} data-testid="button-send855-dialog">
-                        <ArrowRight className="w-3.5 h-3.5" />Send 855 ACK
-                      </Button>
-                      <Button size="sm" className="gap-1.5 bg-amber-600 hover:bg-amber-700" onClick={() => goToOutboundWith810(selected)} data-testid="button-send810-dialog">
-                        <ArrowRight className="w-3.5 h-3.5" />Send 810 Invoice
-                      </Button>
-                      <Button size="sm" className="gap-1.5 bg-orange-600 hover:bg-orange-700" onClick={() => goToOutboundWith204(selected)} data-testid="button-send204-dialog">
-                        <ArrowRight className="w-3.5 h-3.5" />Send 204 Load Tender
-                      </Button>
-                    </>
-                  )}
                   <Button size="sm" variant="outline" className="gap-1.5" disabled={!selected.raw} onClick={() => downloadRaw(selected)} data-testid="button-download-doc">
                     <Download className="w-3.5 h-3.5" />Download
                   </Button>
-                  {selected.backendStatus === 'FAILED' && selected.direction === 'outbound' && (
+                  {selected.backendStatus === "FAILED" && selected.direction === "outbound" && (
                     <Button size="sm" variant="outline" className="gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-50" disabled={retrying === selected.backendId} onClick={() => handleRetry(selected)} data-testid="button-retry-doc">
-                      <RefreshCw className={`w-3.5 h-3.5 ${retrying === selected.backendId ? 'animate-spin' : ''}`} />
-                      {retrying === selected.backendId ? 'Retrying…' : 'Retry'}
+                      <RefreshCw className={`w-3.5 h-3.5 ${retrying === selected.backendId ? "animate-spin" : ""}`} />
+                      {retrying === selected.backendId ? "Retrying…" : "Retry"}
                     </Button>
                   )}
                 </div>
