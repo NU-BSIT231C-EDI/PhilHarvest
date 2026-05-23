@@ -490,9 +490,12 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
 function getThreadState(t: Thread): ThreadState {
   const latest855 = [...t.docs855].sort((a, b) => b.date.localeCompare(a.date))[0];
   const has855Delivered = latest855?.status === "delivered";
-  const isRejected =
-    has855Delivered &&
-    (latest855?.parsedData?.acknowledgment_code as string | undefined) === "RE";
+  // parsedData is overwritten by the transmitter with {response_code, sent_at, endpoint}
+  // so fall back to parsing BAK02 from the raw X12: BAK*00*{ackCode}*{PO}*{date}
+  const ackCode855 =
+    (latest855?.parsedData?.acknowledgment_code as string | undefined) ??
+    latest855?.raw?.match(/BAK\*[^*]*\*([^*~\r\n]+)/)?.[1]?.trim();
+  const isRejected = has855Delivered && ackCode855 === "RE";
   const has856 = t.docs856.length > 0;
 
   return {
