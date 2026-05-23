@@ -496,13 +496,13 @@ class OutboundX12Controller
             // Add line items
             foreach ($validated['line_items'] as $lineItem) {
                 $dto->addLineItem(new \App\DTOs\Edi\Edi810LineItemDto(
-                    lineNumber: $lineItem['line_number'] ?? '0',
-                    poLineNumber: $lineItem['po_line_number'] ?? '0',
-                    partNumber: $lineItem['part_number'],
-                    partDescription: $lineItem['part_description'],
-                    invoicedQuantity: (float)$lineItem['invoiced_quantity'],
-                    quantityUom: $lineItem['quantity_uom'] ?? 'EA',
-                    unitPrice: (float)$lineItem['unit_price'],
+                    lineNumber:       $lineItem['line_number']       ?? '0',
+                    poLineNumber:     $lineItem['po_line_number']     ?? '0',
+                    partNumber:       $lineItem['part_number']        ?? '',
+                    partDescription:  $lineItem['part_description']   ?? '',
+                    invoicedQuantity: (float)($lineItem['invoiced_quantity'] ?? 0),
+                    quantityUom:      $lineItem['quantity_uom']       ?? 'EA',
+                    unitPrice:        (float)($lineItem['unit_price'] ?? 0),
                 ));
             }
 
@@ -535,7 +535,7 @@ class OutboundX12Controller
                 'message' => $e->errors(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('Error generating/sending EDI 810', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
@@ -836,13 +836,13 @@ class OutboundX12Controller
 
             foreach ($validated['line_items'] as $lineItem) {
                 $dto->addLineItem(new \App\DTOs\Edi\Edi810LineItemDto(
-                    lineNumber:       $lineItem['line_number'] ?? '0',
-                    poLineNumber:     $lineItem['po_line_number'] ?? '0',
-                    partNumber:       $lineItem['part_number'],
-                    partDescription:  $lineItem['part_description'],
-                    invoicedQuantity: (float)$lineItem['invoiced_quantity'],
-                    quantityUom:      $lineItem['quantity_uom'] ?? 'EA',
-                    unitPrice:        (float)$lineItem['unit_price'],
+                    lineNumber:       $lineItem['line_number']      ?? '0',
+                    poLineNumber:     $lineItem['po_line_number']   ?? '0',
+                    partNumber:       $lineItem['part_number']      ?? '',
+                    partDescription:  $lineItem['part_description'] ?? '',
+                    invoicedQuantity: (float)($lineItem['invoiced_quantity'] ?? 0),
+                    quantityUom:      $lineItem['quantity_uom']     ?? 'EA',
+                    unitPrice:        (float)($lineItem['unit_price'] ?? 0),
                 ));
             }
 
@@ -860,11 +860,14 @@ class OutboundX12Controller
                 'message' => $e->errors(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
 
-        } catch (\Exception $e) {
-            Log::error('Error previewing EDI 810', ['error' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            Log::error('Error previewing EDI 810', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return response()->json([
                 'error' => 'Preview failed',
-                'message' => 'Failed to generate EDI 810 preview',
+                'message' => $e->getMessage(),
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }

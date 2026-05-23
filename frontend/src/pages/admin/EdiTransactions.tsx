@@ -394,6 +394,24 @@ function PurchaseOrderView({ doc }: { doc: EdiDoc }) {
 
 // ── Thread building ──────────────────────────────────────────────────────────
 
+// Extracts the PO number from a raw X12 payload.
+// 850 stores it in BEG03 (BEG*{01}*{02}*{po_number}*...)
+// 855 stores it in BAK03 (BAK*{01}*{02}*{po_number}*...)
+function extractPoFromX12(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  // 850: BEG*xx*xx*{PO} (BEG03)
+  // 855: BAK*xx*xx*{PO} (BAK03)
+  let match = raw.match(/(?:BEG|BAK)\*[^*]*\*[^*]*\*([^*~\r\n]+)/);
+  if (match?.[1]?.trim()) return match[1].trim();
+  // 856: PRF*{PO} (PRF01)
+  match = raw.match(/PRF\*([^*~\r\n]+)/);
+  if (match?.[1]?.trim()) return match[1].trim();
+  // 810: BIG*{date}*{inv}*{date}*{PO} (BIG04)
+  match = raw.match(/BIG\*[^*]*\*[^*]*\*[^*]*\*([^*~\r\n]+)/);
+  if (match?.[1]?.trim()) return match[1].trim();
+  return undefined;
+}
+
 function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } {
   const inbound850s = docs
     .filter((d) => d.type === "850" && d.direction === "inbound")
@@ -403,16 +421,17 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
   inbound850s.forEach((d) => used.add(d.id));
 
   const threads: Thread[] = inbound850s.map((po) => {
-    const poNum = po.parsedData?.po_number as string | undefined;
+    // Use parsedData.po_number first; fall back to parsing the raw X12.
+    const poNum = (po.parsedData?.po_number as string | undefined) ?? extractPoFromX12(po.raw);
 
-    // Match by PO number when both sides have it; fall back to same partnerId.
+    // Match strictly by PO number. Both sides must have one and they must match.
+    // No partner-only fallback — an unresolvable doc stays as an orphan.
     function byRelated(type: string) {
       return (d: EdiDoc) => {
         if (used.has(d.id) || d.type !== type) return false;
         if (d.partnerId !== po.partnerId) return false;
-        const dPo = d.parsedData?.po_number as string | undefined;
-        if (poNum && dPo) return dPo === poNum;
-        return true;
+        const dPo = (d.parsedData?.po_number as string | undefined) ?? extractPoFromX12(d.raw);
+        return !!poNum && !!dPo && dPo === poNum;
       };
     }
 
