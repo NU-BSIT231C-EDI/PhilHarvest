@@ -39,6 +39,18 @@ class Edi855Generator
             $segments[] = $this->buildDTM($dto);
         }
 
+        // NTE — rejection reason delivered to manufacturer in the X12 body
+        if (!empty($dto->rejectionReason)) {
+            $fs = $this->fieldSeparator;
+            $segments[] = "NTE{$fs}ZZ{$fs}" . substr($dto->rejectionReason, 0, 80);
+        }
+
+        // DTM*010 — promised/estimated ship date
+        if (!empty($dto->estimatedShipDate)) {
+            $fs = $this->fieldSeparator;
+            $segments[] = "DTM{$fs}010{$fs}" . $this->formatDateForX12($dto->estimatedShipDate);
+        }
+
         // N1 name loops with N3/N4 address detail when available
         array_push($segments, ...$this->buildN1ManufacturerLoop($dto));
         array_push($segments, ...$this->buildN1SellerLoop($dto));

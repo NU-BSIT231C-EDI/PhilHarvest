@@ -91,6 +91,7 @@ class OutboundX12Controller
                 'line_acknowledgments.*.part_number' => 'nullable|string',
                 'line_acknowledgments.*.unit_price' => 'nullable|numeric|min:0',
                 'rejection_reason' => 'nullable|string',
+                'estimated_ship_date' => 'nullable|date',
                 'manufacturer_address' => 'nullable|array',
                 'seller_address' => 'nullable|array',
             ]);
@@ -157,6 +158,7 @@ class OutboundX12Controller
                 acknowledgmentCode: $validated['acknowledgment_code'],
                 acknowledgedDate: date('Y-m-d'),
                 rejectionReason: $validated['rejection_reason'] ?? null,
+                estimatedShipDate: $validated['estimated_ship_date'] ?? null,
                 manufacturerAddress: $validated['manufacturer_address'] ?? null,
                 sellerAddress: $validated['seller_address'] ?? null,
             );

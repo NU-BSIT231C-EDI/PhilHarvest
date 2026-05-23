@@ -28,12 +28,12 @@ const PHILHARVEST_ADDRESS = {
   country: "PH",
 };
 
-interface LineItem855 { line_number: string; acknowledgment_code: string; accepted_quantity: string; quantity_uom: string; part_number: string; }
+interface LineItem855 { line_number: string; acknowledgment_code: string; accepted_quantity: string; quantity_uom: string; part_number: string; rejected_quantity: string; rejection_reason: string; estimated_delivery_date: string; }
 interface LineItem856 { line_number: string; part_number: string; part_description: string; shipped_quantity: string; quantity_uom: string; }
 interface LineItem810 { line_number: string; po_line_number: string; part_number: string; part_description: string; invoiced_quantity: string; quantity_uom: string; unit_price: string; }
 interface Stop204 { company_name: string; address: string; city: string; state: string; postal_code: string; country: string; }
 
-const empty855Line = (n = 1): LineItem855 => ({ line_number: String(n), acknowledgment_code: "AA", accepted_quantity: "0", quantity_uom: "KG", part_number: "" });
+const empty855Line = (n = 1): LineItem855 => ({ line_number: String(n), acknowledgment_code: "AA", accepted_quantity: "0", quantity_uom: "KG", part_number: "", rejected_quantity: "", rejection_reason: "", estimated_delivery_date: "" });
 const empty856Line = (n = 1): LineItem856 => ({ line_number: String(n), part_number: "", part_description: "", shipped_quantity: "0", quantity_uom: "KG" });
 const empty810Line = (n = 1): LineItem810 => ({ line_number: String(n), po_line_number: String(n), part_number: "", part_description: "", invoiced_quantity: "0", quantity_uom: "KG", unit_price: "0.00" });
 
@@ -51,6 +51,7 @@ export default function EdiOutbound() {
   const [poDate855, setPoDate855] = useState(today);
   const [ackCode855, setAckCode855] = useState("AA");
   const [rejectionReason855, setRejectionReason855] = useState("");
+  const [promisedDate855, setPromisedDate855] = useState("");
   const [lines855, setLines855] = useState<LineItem855[]>([empty855Line()]);
 
   // 856
@@ -109,7 +110,7 @@ export default function EdiOutbound() {
       if (p.rejection_reason) setRejectionReason855(p.rejection_reason as string);
       if (p.manufacturer_id) setSelectedPartnerId(String(p.manufacturer_id));
       const rawLines = (p.line_acknowledgments as Array<Record<string, unknown>> | undefined) ?? [];
-      if (rawLines.length) setLines855(rawLines.map((l, i) => ({ ...empty855Line(i + 1), line_number: String(l.line_number ?? i + 1), acknowledgment_code: (l.acknowledgment_code as string) ?? "AA", accepted_quantity: String(l.accepted_quantity ?? 0), quantity_uom: (l.quantity_uom as string) ?? "KG", part_number: (l.part_number as string) ?? "" })));
+      if (rawLines.length) setLines855(rawLines.map((l, i) => ({ ...empty855Line(i + 1), line_number: String(l.line_number ?? i + 1), acknowledgment_code: (l.acknowledgment_code as string) ?? "AA", accepted_quantity: String(l.accepted_quantity ?? 0), quantity_uom: (l.quantity_uom as string) ?? "KG", part_number: (l.part_number as string) ?? "", rejected_quantity: String(l.rejected_quantity ?? ""), rejection_reason: (l.rejection_reason as string) ?? "", estimated_delivery_date: (l.estimated_delivery_date as string) ?? "" })));
     } else if (prefill.ediType === "856") {
       if (p.asn_number) setAsnNumber(p.asn_number as string);
       if (p.po_number) setPoNumber856(p.po_number as string);
@@ -172,9 +173,19 @@ export default function EdiOutbound() {
       manufacturer_id: p?.isa_receiver_id.trim() ?? "",
       acknowledgment_code: ackCode855,
       ...(ackCode855 === "RE" && rejectionReason855 ? { rejection_reason: rejectionReason855 } : {}),
+      ...(promisedDate855 && (ackCode855 === "RE" || ackCode855 === "IA") ? { estimated_ship_date: promisedDate855 } : {}),
       manufacturer_address: partnerAddr,
       seller_address: PHILHARVEST_ADDRESS,
-      line_acknowledgments: lines855.map((l) => ({ line_number: l.line_number, acknowledgment_code: l.acknowledgment_code, accepted_quantity: parseFloat(l.accepted_quantity) || 0, quantity_uom: l.quantity_uom, ...(l.part_number ? { part_number: l.part_number } : {}) })),
+      line_acknowledgments: lines855.map((l) => ({
+        line_number: l.line_number,
+        acknowledgment_code: l.acknowledgment_code,
+        accepted_quantity: parseFloat(l.accepted_quantity) || 0,
+        quantity_uom: l.quantity_uom,
+        ...(l.part_number ? { part_number: l.part_number } : {}),
+        ...(l.rejected_quantity ? { rejected_quantity: parseFloat(l.rejected_quantity) } : {}),
+        ...(l.rejection_reason ? { rejection_reason: l.rejection_reason } : {}),
+        ...(l.estimated_delivery_date ? { estimated_delivery_date: l.estimated_delivery_date } : {}),
+      })),
     };
 
     if (docType === "856") return {
@@ -321,27 +332,47 @@ export default function EdiOutbound() {
                       <Input className="mt-1" placeholder="e.g. Item no longer available, price discrepancy…" value={rejectionReason855} onChange={(e) => setRejectionReason855(e.target.value)} />
                     </div>
                   )}
+                  {(ackCode855 === "RE" || ackCode855 === "IA") && (
+                    <div>
+                      <Label>Promised Ship Date</Label>
+                      <Input className="mt-1" type="date" value={promisedDate855} onChange={(e) => setPromisedDate855(e.target.value)} />
+                      <p className="text-xs text-muted-foreground mt-1">Sent as DTM*010 in the X12 855</p>
+                    </div>
+                  )}
                   <Collapsible defaultOpen>
                     <CollapsibleTrigger asChild>
                       <button className="flex items-center gap-2 text-sm font-medium w-full text-left"><ChevronDown className="w-4 h-4" />Line Acknowledgments ({lines855.length})</button>
                     </CollapsibleTrigger>
                     <CollapsibleContent className="space-y-2 mt-2">
                       {lines855.map((l, i) => (
-                        <div key={i} className="grid grid-cols-12 gap-1 items-end">
-                          <div className="col-span-1"><Label className="text-xs">#</Label><Input className="mt-1 text-xs h-8" value={l.line_number} onChange={(e) => updateLine(setLines855, i, { line_number: e.target.value })} /></div>
-                          <div className="col-span-2">
-                            <Label className="text-xs">Code</Label>
-                            <Select value={l.acknowledgment_code} onValueChange={(v) => updateLine(setLines855, i, { acknowledgment_code: v })}>
-                              <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
-                              <SelectContent><SelectItem value="AA">AA</SelectItem><SelectItem value="RE">RE</SelectItem><SelectItem value="IA">IA</SelectItem></SelectContent>
-                            </Select>
+                        <div key={i} className="space-y-1 border border-border/50 rounded p-2">
+                          <div className="grid grid-cols-12 gap-1 items-end">
+                            <div className="col-span-1"><Label className="text-xs">#</Label><Input className="mt-1 text-xs h-8" value={l.line_number} onChange={(e) => updateLine(setLines855, i, { line_number: e.target.value })} /></div>
+                            <div className="col-span-2">
+                              <Label className="text-xs">Code</Label>
+                              <Select value={l.acknowledgment_code} onValueChange={(v) => updateLine(setLines855, i, { acknowledgment_code: v, ...(v === "AA" ? { rejected_quantity: "", rejection_reason: "" } : {}) })}>
+                                <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="AA">AA — Accept</SelectItem>
+                                  <SelectItem value="IA">IA — Partial</SelectItem>
+                                  <SelectItem value="RE">RE — Reject</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="col-span-2"><Label className="text-xs">Accepted Qty</Label><Input className="mt-1 text-xs h-8" type="number" disabled={l.acknowledgment_code === "RE"} value={l.acknowledgment_code === "RE" ? "0" : l.accepted_quantity} onChange={(e) => updateLine(setLines855, i, { accepted_quantity: e.target.value })} /></div>
+                            <div className="col-span-2"><Label className="text-xs">Rejected Qty</Label><Input className="mt-1 text-xs h-8" type="number" disabled={l.acknowledgment_code === "AA"} value={l.rejected_quantity} onChange={(e) => updateLine(setLines855, i, { rejected_quantity: e.target.value })} /></div>
+                            <div className="col-span-2"><Label className="text-xs">UOM</Label><Input className="mt-1 text-xs h-8" value={l.quantity_uom} onChange={(e) => updateLine(setLines855, i, { quantity_uom: e.target.value })} /></div>
+                            <div className="col-span-2"><Label className="text-xs">Part #</Label><Input className="mt-1 text-xs h-8 font-mono" value={l.part_number} onChange={(e) => updateLine(setLines855, i, { part_number: e.target.value })} /></div>
+                            <div className="col-span-1 flex items-end pb-1">
+                              {lines855.length > 1 && <button className="text-destructive text-lg leading-none" onClick={() => setLines855((p) => p.filter((_, idx) => idx !== i))}>×</button>}
+                            </div>
                           </div>
-                          <div className="col-span-2"><Label className="text-xs">Qty</Label><Input className="mt-1 text-xs h-8" type="number" value={l.accepted_quantity} onChange={(e) => updateLine(setLines855, i, { accepted_quantity: e.target.value })} /></div>
-                          <div className="col-span-2"><Label className="text-xs">UOM</Label><Input className="mt-1 text-xs h-8" value={l.quantity_uom} onChange={(e) => updateLine(setLines855, i, { quantity_uom: e.target.value })} /></div>
-                          <div className="col-span-4"><Label className="text-xs">Part #</Label><Input className="mt-1 text-xs h-8 font-mono" value={l.part_number} onChange={(e) => updateLine(setLines855, i, { part_number: e.target.value })} /></div>
-                          <div className="col-span-1 flex items-end pb-1">
-                            {lines855.length > 1 && <button className="text-destructive text-lg leading-none" onClick={() => setLines855((p) => p.filter((_, idx) => idx !== i))}>×</button>}
-                          </div>
+                          {(l.acknowledgment_code === "RE" || l.acknowledgment_code === "IA") && (
+                            <div className="grid grid-cols-2 gap-1">
+                              <div><Label className="text-xs">Line Rejection Reason</Label><Input className="mt-1 text-xs h-8" placeholder="Why this line is rejected/partial" value={l.rejection_reason} onChange={(e) => updateLine(setLines855, i, { rejection_reason: e.target.value })} /></div>
+                              <div><Label className="text-xs">Est. Delivery Date</Label><Input className="mt-1 text-xs h-8" type="date" value={l.estimated_delivery_date} onChange={(e) => updateLine(setLines855, i, { estimated_delivery_date: e.target.value })} /></div>
+                            </div>
+                          )}
                         </div>
                       ))}
                       <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => setLines855((p) => [...p, empty855Line(p.length + 1)])}>+ Add Line</Button>

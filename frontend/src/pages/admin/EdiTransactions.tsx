@@ -604,6 +604,12 @@ function ThreadRow({
           )}
         </div>
 
+        {(() => {
+          const isCompleted = thread.docs990.length > 0 && thread.docs810.length > 0;
+          if (state.isRejected) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700 border border-red-200 shrink-0">Rejected</span>;
+          if (isCompleted) return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700 border border-green-200 shrink-0">Completed</span>;
+          return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200 shrink-0">Active</span>;
+        })()}
         <StatusBadge status={po.status} />
         <span className="text-xs text-muted-foreground whitespace-nowrap">{po.date}</span>
         <Button
