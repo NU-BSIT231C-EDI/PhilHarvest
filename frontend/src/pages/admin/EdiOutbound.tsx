@@ -72,6 +72,7 @@ export default function EdiOutbound() {
 
   // 204
   const [loadTenderId, setLoadTenderId] = useState(`LOAD-${today}-001`);
+  const [poNumber204, setPoNumber204] = useState("");
   const [pickupDate, setPickupDate] = useState(today);
   const [deliveryDate, setDeliveryDate] = useState(today);
   const [carrierName, setCarrierName] = useState("");
@@ -137,6 +138,7 @@ export default function EdiOutbound() {
       })));
     } else if (prefill.ediType === "204") {
       if (p.load_tender_id) setLoadTenderId(p.load_tender_id as string);
+      if (p.po_number) setPoNumber204(p.po_number as string);
       if (p.pickup_date) setPickupDate(p.pickup_date as string);
       if (p.delivery_date) setDeliveryDate(p.delivery_date as string);
       const rawAddr = p.consignee_address as Record<string, string> | undefined;
@@ -193,6 +195,7 @@ export default function EdiOutbound() {
 
     return {
       load_tender_id: loadTenderId,
+      ...(poNumber204 ? { po_number: poNumber204 } : {}),
       shipper_company_name: "PHILHARVEST",
       shipper_address: PHILHARVEST_ADDRESS,
       carrier_code: p?.isa_receiver_id.trim() ?? "",
@@ -427,6 +430,10 @@ export default function EdiOutbound() {
                 <CardContent className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div><Label>Load Tender ID</Label><Input className="mt-1 font-mono text-sm" value={loadTenderId} onChange={(e) => setLoadTenderId(e.target.value)} /></div>
+                    <div><Label>PO Number</Label><Input className="mt-1 font-mono text-sm" placeholder="Links to 850 thread" value={poNumber204} onChange={(e) => setPoNumber204(e.target.value)} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div></div>
                     <div><Label>Carrier Name</Label><Input className="mt-1" placeholder="Defaults to partner name" value={carrierName} onChange={(e) => setCarrierName(e.target.value)} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">

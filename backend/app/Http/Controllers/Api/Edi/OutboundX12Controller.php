@@ -310,6 +310,7 @@ class OutboundX12Controller
                 'shipments.*.commodity'           => 'nullable|string',
                 'pickup_date'                     => 'nullable|date',
                 'delivery_date'                   => 'nullable|date',
+                'po_number'                       => 'nullable|string',
             ]);
 
             $dto = new \App\DTOs\Edi\Edi204MotorCarrierLoadTenderDto(
@@ -321,6 +322,7 @@ class OutboundX12Controller
                 shipToAddress:      $validated['ship_to_address'],
                 pickupDate:         $validated['pickup_date'] ?? date('Y-m-d'),
                 deliveryDate:       $validated['delivery_date'] ?? null,
+                poNumber:           $validated['po_number'] ?? null,
             );
 
             foreach ($validated['shipments'] as $s) {

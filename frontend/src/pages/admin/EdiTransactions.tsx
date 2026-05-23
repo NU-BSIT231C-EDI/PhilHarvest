@@ -141,8 +141,10 @@ function build204Prefill(doc: EdiDoc): Record<string, unknown> {
   const d = doc.parsedData ?? {};
   const today = new Date().toISOString().slice(0, 10);
   const rawShipTo = d.ship_to_address as Record<string, string> | null | undefined;
+  const poNum = (d.po_number as string | undefined) ?? extractPoFromX12(doc.raw);
   return {
     load_tender_id: `LOAD-${today}-001`,
+    po_number: poNum ?? "",
     consignee_company_name: rawShipTo?.company_name ?? '',
     consignee_address: {
       street:      rawShipTo?.street      ?? '',
