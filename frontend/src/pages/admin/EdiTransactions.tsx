@@ -405,10 +405,15 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
   const threads: Thread[] = inbound850s.map((po) => {
     const poNum = po.parsedData?.po_number as string | undefined;
 
-    function byPoNumber(d: EdiDoc) {
-      if (used.has(d.id)) return false;
-      const dPo = d.parsedData?.po_number as string | undefined;
-      return !!poNum && !!dPo && dPo === poNum;
+    // Match by PO number when both sides have it; fall back to same partnerId.
+    function byRelated(type: string) {
+      return (d: EdiDoc) => {
+        if (used.has(d.id) || d.type !== type) return false;
+        if (d.partnerId !== po.partnerId) return false;
+        const dPo = d.parsedData?.po_number as string | undefined;
+        if (poNum && dPo) return dPo === poNum;
+        return true;
+      };
     }
 
     function byPartner(type: string) {
@@ -423,9 +428,9 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
 
     return {
       po,
-      docs855: take((d) => byPoNumber(d) && d.type === "855"),
-      docs856: take((d) => byPoNumber(d) && d.type === "856"),
-      docs810: take((d) => byPoNumber(d) && d.type === "810"),
+      docs855: take(byRelated("855")),
+      docs856: take(byRelated("856")),
+      docs810: take(byRelated("810")),
       docs204: take(byPartner("204")),
       docs990: take(byPartner("990")),
     };
