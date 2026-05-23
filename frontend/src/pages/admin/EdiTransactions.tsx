@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Search, Download, RefreshCw, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, Download, RefreshCw, ArrowRight, ChevronDown, ChevronRight, Printer, Leaf } from "lucide-react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -205,6 +205,191 @@ function build810Prefill(doc: EdiDoc): Record<string, unknown> {
       unit_price:       Number(li.unit_price ?? 0),
     })),
   };
+}
+
+// ── 850 Print & Visual View ─────────────────────────────────────────────────
+
+function printPOWindow(doc: EdiDoc) {
+  const d         = doc.parsedData ?? {};
+  const poNumber  = (d.po_number as string | undefined) ?? doc.isaControl;
+  const poDate    = (d.po_date   as string | undefined) ?? doc.date;
+  const lineItems = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
+  const shipTo    = d.ship_to_address as Record<string, string> | undefined;
+  const total     = lineItems.reduce((s, li) => s + Number(li.quantity ?? 0) * Number(li.unit_price ?? 0), 0);
+
+  const lineRows = lineItems.map((li, i) => {
+    const qty   = Number(li.quantity  ?? 0);
+    const price = Number(li.unit_price ?? 0);
+    return `<tr>
+      <td>${String(li.line_number ?? i + 1)}</td>
+      <td style="font-family:monospace">${String(li.part_number ?? "—")}</td>
+      <td>${String(li.part_description ?? li.product_description ?? "—")}</td>
+      <td style="text-align:right">${qty.toLocaleString()}</td>
+      <td>${String(li.quantity_uom ?? "—")}</td>
+      <td style="text-align:right">${price > 0 ? `&#8369;${price.toFixed(2)}` : "—"}</td>
+      <td style="text-align:right">${price > 0 ? `&#8369;${(qty * price).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}</td>
+    </tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html><html><head><title>PO ${poNumber}</title>
+<style>
+  body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:40px}
+  .hdr{display:flex;justify-content:space-between;margin-bottom:24px}
+  .brand{font-size:18px;font-weight:bold;color:#16a34a}
+  h1{font-size:22px;margin:0}
+  .mono{font-family:monospace;font-weight:bold;font-size:13px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;border:1px solid #ddd;padding:12px;margin-bottom:16px;border-radius:6px}
+  .lbl{font-size:10px;font-weight:bold;text-transform:uppercase;color:#888;margin-bottom:4px}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px}
+  th{background:#f5f5f5;text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;color:#666;border-bottom:1px solid #ddd}
+  td{padding:8px 10px;border-bottom:1px solid #eee;font-size:11px}
+  tfoot td{font-weight:bold;border-top:2px solid #ddd;background:#fafafa}
+  .ftr{display:flex;justify-content:space-between;border-top:1px solid #ddd;padding-top:12px;font-size:10px;color:#888}
+  @media print{body{margin:20px}}
+</style></head><body>
+<div class="hdr">
+  <div>
+    <div class="brand">PhilHarvest</div>
+    <div style="font-size:10px;color:#888">Agricultural Marketplace</div>
+    <div style="font-size:10px;color:#888">458 Mabini St., Brgy. Santo Nino</div>
+    <div style="font-size:10px;color:#888">General Santos City, SC 9500, PH</div>
+  </div>
+  <div style="text-align:right">
+    <h1>PURCHASE ORDER</h1>
+    <div class="mono">PO# ${poNumber}</div>
+    <div style="color:#888;font-size:10px">Date: ${poDate}</div>
+    <div style="color:#888;font-size:10px">ISA Control: ${doc.isaControl}</div>
+  </div>
+</div>
+<div class="grid">
+  <div><div class="lbl">From (Buyer)</div><strong>${doc.company}</strong></div>
+  <div><div class="lbl">Ship To</div>${shipTo
+    ? `<strong>${shipTo.company_name ?? ""}</strong><br>${shipTo.street ?? ""}<br>${shipTo.city ?? ""}, ${shipTo.state ?? ""} ${shipTo.postal_code ?? ""}<br>${shipTo.country ?? ""}`
+    : "Not specified"}</div>
+</div>
+<table>
+  <thead><tr><th>#</th><th>Part #</th><th>Description</th><th style="text-align:right">Qty</th><th>UOM</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th></tr></thead>
+  <tbody>${lineRows || '<tr><td colspan="7" style="text-align:center;color:#888">No line items in parsed data</td></tr>'}</tbody>
+  ${total > 0 ? `<tfoot><tr><td colspan="6" style="text-align:right">TOTAL</td><td style="text-align:right">&#8369;${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr></tfoot>` : ""}
+</table>
+<div class="ftr">
+  <div>
+    ${d.payment_terms ? `<div><strong>Payment Terms:</strong> ${String(d.payment_terms)}</div>` : ""}
+    ${d.delivery_date ? `<div><strong>Requested Delivery:</strong> ${String(d.delivery_date)}</div>` : ""}
+  </div>
+  <div style="text-align:right"><div>Received via EDI X12 850</div><div>${doc.date}</div></div>
+</div>
+</body></html>`;
+
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 250);
+}
+
+function PurchaseOrderView({ doc }: { doc: EdiDoc }) {
+  const d         = doc.parsedData ?? {};
+  const poNumber  = (d.po_number as string | undefined) ?? doc.isaControl;
+  const poDate    = (d.po_date   as string | undefined) ?? doc.date;
+  const lineItems = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
+  const shipTo    = d.ship_to_address as Record<string, string> | undefined;
+  const total     = lineItems.reduce((s, li) => s + Number(li.quantity ?? 0) * Number(li.unit_price ?? 0), 0);
+
+  return (
+    <div className="space-y-4 text-sm">
+      {/* Letterhead */}
+      <div className="flex justify-between items-start">
+        <div>
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <Leaf className="w-4 h-4 text-primary" />
+            <span className="font-bold text-base text-primary">PhilHarvest</span>
+          </div>
+          <p className="text-xs text-muted-foreground">Agricultural Marketplace</p>
+          <p className="text-xs text-muted-foreground">458 Mabini St., Brgy. Santo Nino</p>
+          <p className="text-xs text-muted-foreground">General Santos City, SC 9500, PH</p>
+        </div>
+        <div className="text-right">
+          <h2 className="text-xl font-bold text-foreground tracking-tight">PURCHASE ORDER</h2>
+          <p className="font-mono font-semibold text-sm text-foreground">PO# {poNumber}</p>
+          <p className="text-xs text-muted-foreground">Date: {poDate}</p>
+          <p className="text-xs text-muted-foreground">ISA Control: {doc.isaControl}</p>
+        </div>
+      </div>
+
+      {/* From / Ship-To */}
+      <div className="grid grid-cols-2 gap-4 border border-border rounded-lg p-3">
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">From (Buyer)</p>
+          <p className="font-semibold text-foreground">{doc.company}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Ship To</p>
+          {shipTo ? (
+            <>
+              <p className="font-semibold text-foreground">{shipTo.company_name}</p>
+              <p className="text-xs text-muted-foreground">{shipTo.street}</p>
+              <p className="text-xs text-muted-foreground">{shipTo.city}, {shipTo.state} {shipTo.postal_code}</p>
+              <p className="text-xs text-muted-foreground">{shipTo.country}</p>
+            </>
+          ) : <p className="text-xs text-muted-foreground italic">Not specified</p>}
+        </div>
+      </div>
+
+      {/* Line items */}
+      <div className="border border-border rounded-lg overflow-hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-muted">
+            <tr>
+              {["#", "Part #", "Description", "Qty", "UOM", "Unit Price", "Total"].map((h, i) => (
+                <th key={h} className={`px-3 py-2 font-semibold text-muted-foreground uppercase ${i >= 3 ? "text-right" : "text-left"}`}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {lineItems.length > 0 ? lineItems.map((li, i) => {
+              const qty   = Number(li.quantity   ?? 0);
+              const price = Number(li.unit_price ?? 0);
+              return (
+                <tr key={i} className="hover:bg-muted/30">
+                  <td className="px-3 py-2 text-muted-foreground">{String(li.line_number ?? i + 1)}</td>
+                  <td className="px-3 py-2 font-mono">{String(li.part_number ?? "—")}</td>
+                  <td className="px-3 py-2">{String(li.part_description ?? li.product_description ?? "—")}</td>
+                  <td className="px-3 py-2 text-right">{qty.toLocaleString()}</td>
+                  <td className="px-3 py-2">{String(li.quantity_uom ?? "—")}</td>
+                  <td className="px-3 py-2 text-right">{price > 0 ? `₱${price.toFixed(2)}` : "—"}</td>
+                  <td className="px-3 py-2 text-right font-medium">{price > 0 ? `₱${(qty * price).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}</td>
+                </tr>
+              );
+            }) : (
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground italic">No line items in parsed data</td></tr>
+            )}
+          </tbody>
+          {total > 0 && (
+            <tfoot className="border-t-2 border-border bg-muted/50">
+              <tr>
+                <td colSpan={6} className="px-3 py-2 text-right font-semibold text-muted-foreground text-xs uppercase">Total</td>
+                <td className="px-3 py-2 text-right font-bold text-foreground">₱{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      {/* Footer meta */}
+      <div className="flex justify-between text-xs text-muted-foreground border-t border-border pt-3">
+        <div className="space-y-0.5">
+          {!!d.payment_terms && <p><span className="font-medium text-foreground">Payment Terms:</span> {String(d.payment_terms)}</p>}
+          {!!d.delivery_date && <p><span className="font-medium text-foreground">Requested Delivery:</span> {String(d.delivery_date)}</p>}
+        </div>
+        <div className="text-right">
+          <p className="font-medium text-foreground">Received via EDI X12 850</p>
+          <p>{doc.date}</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Thread building ──────────────────────────────────────────────────────────
@@ -541,7 +726,7 @@ export default function EdiTransactions() {
         {orphans.length > 0 && !loading && (
           <div className="mt-2">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-              Other Documents
+              DOCUMENTS
             </p>
             <div className="bg-card border border-border rounded-xl overflow-hidden">
               <table className="w-full text-sm">
@@ -580,7 +765,7 @@ export default function EdiTransactions() {
 
         {/* Detail dialog */}
         <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className={selected?.type === "850" ? "max-w-3xl" : "max-w-2xl"}>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 {selected?.id}
@@ -590,31 +775,55 @@ export default function EdiTransactions() {
               </DialogTitle>
             </DialogHeader>
             {selected && (
-              <div className="space-y-3 text-sm">
-                <div className="grid grid-cols-2 gap-3">
-                  <div><p className="text-xs text-muted-foreground">Company</p><p className="font-medium">{selected.company}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Status</p><StatusBadge status={selected.status} /></div>
-                  <div><p className="text-xs text-muted-foreground">Direction</p><p className="font-medium capitalize">{selected.direction}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Date</p><p className="font-medium">{selected.date}</p></div>
-                  <div><p className="text-xs text-muted-foreground">ISA Control #</p><p className="font-mono font-medium">{selected.isaControl}</p></div>
-                </div>
-                {selected.raw && (
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Raw EDI Payload</p>
-                    <pre className="bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-48">{selected.raw}</pre>
-                  </div>
+              <div className="space-y-3 overflow-y-auto max-h-[75vh]">
+                {selected.type === "850" ? (
+                  <>
+                    <PurchaseOrderView doc={selected} />
+                    {selected.raw && (
+                      <details className="group">
+                        <summary className="text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                          Show raw EDI payload
+                        </summary>
+                        <pre className="mt-2 bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-40">{selected.raw}</pre>
+                      </details>
+                    )}
+                    <div className="flex gap-2 flex-wrap pt-1 border-t border-border">
+                      <Button size="sm" className="gap-1.5" onClick={() => printPOWindow(selected)} data-testid="button-print-po">
+                        <Printer className="w-3.5 h-3.5" />Print PO
+                      </Button>
+                      <Button size="sm" variant="outline" className="gap-1.5" disabled={!selected.raw} onClick={() => downloadRaw(selected)} data-testid="button-download-doc">
+                        <Download className="w-3.5 h-3.5" />Download EDI
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div><p className="text-xs text-muted-foreground">Company</p><p className="font-medium">{selected.company}</p></div>
+                      <div><p className="text-xs text-muted-foreground">Status</p><StatusBadge status={selected.status} /></div>
+                      <div><p className="text-xs text-muted-foreground">Direction</p><p className="font-medium capitalize">{selected.direction}</p></div>
+                      <div><p className="text-xs text-muted-foreground">Date</p><p className="font-medium">{selected.date}</p></div>
+                      <div><p className="text-xs text-muted-foreground">ISA Control #</p><p className="font-mono font-medium">{selected.isaControl}</p></div>
+                    </div>
+                    {selected.raw && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Raw EDI Payload</p>
+                        <pre className="bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-48">{selected.raw}</pre>
+                      </div>
+                    )}
+                    <div className="flex gap-2 flex-wrap pt-1">
+                      <Button size="sm" variant="outline" className="gap-1.5" disabled={!selected.raw} onClick={() => downloadRaw(selected)} data-testid="button-download-doc">
+                        <Download className="w-3.5 h-3.5" />Download
+                      </Button>
+                      {selected.backendStatus === "FAILED" && selected.direction === "outbound" && (
+                        <Button size="sm" variant="outline" className="gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-50" disabled={retrying === selected.backendId} onClick={() => handleRetry(selected)} data-testid="button-retry-doc">
+                          <RefreshCw className={`w-3.5 h-3.5 ${retrying === selected.backendId ? "animate-spin" : ""}`} />
+                          {retrying === selected.backendId ? "Retrying…" : "Retry"}
+                        </Button>
+                      )}
+                    </div>
+                  </>
                 )}
-                <div className="flex gap-2 flex-wrap pt-1">
-                  <Button size="sm" variant="outline" className="gap-1.5" disabled={!selected.raw} onClick={() => downloadRaw(selected)} data-testid="button-download-doc">
-                    <Download className="w-3.5 h-3.5" />Download
-                  </Button>
-                  {selected.backendStatus === "FAILED" && selected.direction === "outbound" && (
-                    <Button size="sm" variant="outline" className="gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-50" disabled={retrying === selected.backendId} onClick={() => handleRetry(selected)} data-testid="button-retry-doc">
-                      <RefreshCw className={`w-3.5 h-3.5 ${retrying === selected.backendId ? "animate-spin" : ""}`} />
-                      {retrying === selected.backendId ? "Retrying…" : "Retry"}
-                    </Button>
-                  )}
-                </div>
               </div>
             )}
           </DialogContent>
