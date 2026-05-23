@@ -394,6 +394,15 @@ function PurchaseOrderView({ doc }: { doc: EdiDoc }) {
 
 // ── Thread building ──────────────────────────────────────────────────────────
 
+// Extracts BEG03 (PO number) from a raw X12 payload string.
+// Works for both 850 and 855 since both use BEG*PP*type*{po_number}*...
+function extractPoFromX12(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const match = raw.match(/BEG\*[^*]*\*[^*]*\*([^*~\r\n]+)/);
+  const val = match?.[1]?.trim();
+  return val || undefined;
+}
+
 function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } {
   const inbound850s = docs
     .filter((d) => d.type === "850" && d.direction === "inbound")
@@ -403,14 +412,15 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
   inbound850s.forEach((d) => used.add(d.id));
 
   const threads: Thread[] = inbound850s.map((po) => {
-    const poNum = po.parsedData?.po_number as string | undefined;
+    // Use parsedData.po_number first; fall back to parsing the raw X12.
+    const poNum = (po.parsedData?.po_number as string | undefined) ?? extractPoFromX12(po.raw);
 
     // Match by PO number when both sides have it; fall back to same partnerId.
     function byRelated(type: string) {
       return (d: EdiDoc) => {
         if (used.has(d.id) || d.type !== type) return false;
         if (d.partnerId !== po.partnerId) return false;
-        const dPo = d.parsedData?.po_number as string | undefined;
+        const dPo = (d.parsedData?.po_number as string | undefined) ?? extractPoFromX12(d.raw);
         if (poNum && dPo) return dPo === poNum;
         return true;
       };
