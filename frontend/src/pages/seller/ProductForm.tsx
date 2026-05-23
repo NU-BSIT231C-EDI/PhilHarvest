@@ -26,6 +26,7 @@ const schema = z.object({
   unit_of_measure: z.string().min(1, "Please select a unit"),
   stock_quantity: z.coerce.number().int().nonnegative("Stock cannot be negative"),
   reorder_point: z.coerce.number().int().nonnegative(),
+  weight_kg: z.coerce.number().nonnegative().optional(),
   is_active: z.boolean(),
 });
 
@@ -51,6 +52,7 @@ export default function ProductForm() {
       unit_of_measure: "EA",
       stock_quantity: 0,
       reorder_point: 0,
+      weight_kg: undefined,
       is_active: true,
     },
   });
@@ -71,6 +73,7 @@ export default function ProductForm() {
           unit_of_measure: found.unit_of_measure,
           stock_quantity: found.stock_quantity,
           reorder_point: found.reorder_point,
+          weight_kg: found.weight_kg != null ? Number(found.weight_kg) : undefined,
           is_active: found.is_active,
         });
       }
@@ -82,6 +85,7 @@ export default function ProductForm() {
     try {
       const payload = {
         ...data,
+        weight_kg: data.weight_kg ?? null,
         image_url: imagePreview || undefined,
       };
 
@@ -222,6 +226,14 @@ export default function ProductForm() {
                       <FormItem>
                         <FormLabel>Reorder Point</FormLabel>
                         <FormControl><Input type="number" min={0} {...field} data-testid="input-reorder" /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="weight_kg" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Weight per unit (kg)</FormLabel>
+                        <FormControl><Input type="number" step="0.001" min={0} placeholder="e.g. 0.5" {...field} data-testid="input-weight" /></FormControl>
+                        <p className="text-xs text-muted-foreground">Used for shipment weight in ASN (856) and load tender (204)</p>
                         <FormMessage />
                       </FormItem>
                     )} />
