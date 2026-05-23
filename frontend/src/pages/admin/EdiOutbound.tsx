@@ -73,6 +73,7 @@ export default function EdiOutbound() {
   // 204
   const [loadTenderId, setLoadTenderId] = useState(`LOAD-${today}-001`);
   const [poNumber204, setPoNumber204] = useState("");
+  const [shipmentWeight204, setShipmentWeight204] = useState("");
   const [pickupDate, setPickupDate] = useState(today);
   const [deliveryDate, setDeliveryDate] = useState(today);
   const [carrierName, setCarrierName] = useState("");
@@ -115,6 +116,7 @@ export default function EdiOutbound() {
       if (p.manufacturer_id) setSelectedPartnerId(String(p.manufacturer_id));
       const rawShipTo = p.ship_to_address as Record<string, string> | undefined;
       if (rawShipTo) setShipToAddress({ company_name: rawShipTo.company_name ?? "", street: rawShipTo.street ?? "", city: rawShipTo.city ?? "", state: rawShipTo.state ?? "", postal_code: rawShipTo.postal_code ?? "", country: rawShipTo.country ?? "PH" });
+      if (p.total_weight) setTotalWeight(String(p.total_weight));
       const rawBoxes = (p.boxes as Array<{ line_items: Array<Record<string, unknown>> }> | undefined) ?? [];
       const items = rawBoxes.flatMap((b) => b.line_items ?? []);
       if (items.length) setLines856(items.map((l, i) => ({ line_number: String(l.line_number ?? i + 1), part_number: (l.part_number as string) ?? "", part_description: (l.part_description as string) ?? "", shipped_quantity: String(l.shipped_quantity ?? 0), quantity_uom: (l.quantity_uom as string) ?? "KG" })));
@@ -139,6 +141,7 @@ export default function EdiOutbound() {
     } else if (prefill.ediType === "204") {
       if (p.load_tender_id) setLoadTenderId(p.load_tender_id as string);
       if (p.po_number) setPoNumber204(p.po_number as string);
+      if (p.shipment_weight) setShipmentWeight204(String(p.shipment_weight));
       if (p.pickup_date) setPickupDate(p.pickup_date as string);
       if (p.delivery_date) setDeliveryDate(p.delivery_date as string);
       const rawAddr = p.consignee_address as Record<string, string> | undefined;
@@ -196,6 +199,7 @@ export default function EdiOutbound() {
     return {
       load_tender_id: loadTenderId,
       ...(poNumber204 ? { po_number: poNumber204 } : {}),
+      ...(shipmentWeight204 ? { shipment_weight: parseFloat(shipmentWeight204) } : {}),
       shipper_company_name: "PHILHARVEST",
       shipper_address: PHILHARVEST_ADDRESS,
       carrier_code: p?.isa_receiver_id.trim() ?? "",
@@ -433,7 +437,7 @@ export default function EdiOutbound() {
                     <div><Label>PO Number</Label><Input className="mt-1 font-mono text-sm" placeholder="Links to 850 thread" value={poNumber204} onChange={(e) => setPoNumber204(e.target.value)} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div></div>
+                    <div><Label>Total Weight (LB)</Label><Input className="mt-1" type="number" placeholder="Auto-filled from inventory" value={shipmentWeight204} onChange={(e) => setShipmentWeight204(e.target.value)} /></div>
                     <div><Label>Carrier Name</Label><Input className="mt-1" placeholder="Defaults to partner name" value={carrierName} onChange={(e) => setCarrierName(e.target.value)} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">

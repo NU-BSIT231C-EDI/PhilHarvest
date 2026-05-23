@@ -16,6 +16,7 @@ import {
 } from "@/services/ediApi";
 import { useEdiPrefill } from "@/store/ediPrefill";
 import { useToast } from "@/hooks/use-toast";
+import { fetchProducts } from "@/services/productsApi";
 
 type DocStatus = "delivered" | "pending" | "validated" | "error";
 
@@ -104,11 +105,16 @@ const PHILHARVEST_ADDRESS = {
   country: "PH",
 };
 
-function build856Prefill(doc: EdiDoc): Record<string, unknown> {
+function build856Prefill(doc: EdiDoc, weightMap: Record<string, number>): Record<string, unknown> {
   const d = doc.parsedData ?? {};
   const today = new Date().toISOString().slice(0, 10);
   const rawShipTo = d.ship_to_address as Record<string, string> | null | undefined;
   const rawLines  = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
+  const totalWeightLb = rawLines.reduce((sum, li) => {
+    const sku = (li.part_number as string | undefined) ?? '';
+    const wlb = weightMap[sku] ?? 0;
+    return sum + Number(li.quantity ?? 0) * wlb;
+  }, 0);
   return {
     asn_number: `ASN-${today}-001`,
     po_number:  (d.po_number  as string | undefined) ?? '',
@@ -124,6 +130,7 @@ function build856Prefill(doc: EdiDoc): Record<string, unknown> {
       postal_code:  rawShipTo?.postal_code  ?? '',
       country:      rawShipTo?.country      ?? 'PH',
     },
+    ...(totalWeightLb > 0 ? { total_weight: Math.round(totalWeightLb * 1000) / 1000 } : {}),
     boxes: [{
       box_number: '1',
       line_items: rawLines.map((li, i) => ({
@@ -137,14 +144,21 @@ function build856Prefill(doc: EdiDoc): Record<string, unknown> {
   };
 }
 
-function build204Prefill(doc: EdiDoc): Record<string, unknown> {
+function build204Prefill(doc: EdiDoc, weightMap: Record<string, number>): Record<string, unknown> {
   const d = doc.parsedData ?? {};
   const today = new Date().toISOString().slice(0, 10);
   const rawShipTo = d.ship_to_address as Record<string, string> | null | undefined;
+  const rawLines  = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
   const poNum = (d.po_number as string | undefined) ?? extractPoFromX12(doc.raw);
+  const totalWeightLb = rawLines.reduce((sum, li) => {
+    const sku = (li.part_number as string | undefined) ?? '';
+    const wlb = weightMap[sku] ?? 0;
+    return sum + Number(li.quantity ?? 0) * wlb;
+  }, 0);
   return {
     load_tender_id: `LOAD-${today}-001`,
     po_number: poNum ?? "",
+    ...(totalWeightLb > 0 ? { shipment_weight: Math.round(totalWeightLb * 1000) / 1000 } : {}),
     consignee_company_name: rawShipTo?.company_name ?? '',
     consignee_address: {
       street:      rawShipTo?.street      ?? '',
@@ -653,9 +667,22 @@ export default function EdiTransactions() {
   const [search, setSearch]     = useState("");
   const [selected, setSelected] = useState<EdiDoc | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [weightMap, setWeightMap] = useState<Record<string, number>>({});
   const { toast } = useToast();
   const { setPrefill } = useEdiPrefill();
   const [, navigate] = useLocation();
+
+  useEffect(() => {
+    fetchProducts({ per_page: 500 }).then((page) => {
+      const map: Record<string, number> = {};
+      for (const p of page.data) {
+        if (p.sku && p.weight_kg != null) {
+          map[p.sku] = Number(p.weight_kg) * 2.20462;
+        }
+      }
+      setWeightMap(map);
+    }).catch(() => {});
+  }, []);
 
   const loadDocs = useCallback(() => {
     setLoading(true);
@@ -712,8 +739,8 @@ export default function EdiTransactions() {
 
   const actions = {
     send855: (po: EdiDoc) => prefillAndGo("855", build855Prefill(po), po.id),
-    send204: (po: EdiDoc) => prefillAndGo("204", build204Prefill(po), po.id),
-    send856: (po: EdiDoc) => prefillAndGo("856", build856Prefill(po), po.id),
+    send204: (po: EdiDoc) => prefillAndGo("204", build204Prefill(po, weightMap), po.id),
+    send856: (po: EdiDoc) => prefillAndGo("856", build856Prefill(po, weightMap), po.id),
     send810: (po: EdiDoc) => prefillAndGo("810", build810Prefill(po), po.id),
   };
 
