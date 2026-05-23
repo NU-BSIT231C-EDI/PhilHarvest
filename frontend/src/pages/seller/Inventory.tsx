@@ -4,11 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import DashboardLayout from "@/layouts/DashboardLayout";
-import { products } from "@/data/mockData";
-
-const myProducts = products.filter((p) => p.sellerId === "s1");
+import { useProductStore } from "@/store";
 
 export default function Inventory() {
+  const allProducts = useProductStore((s) => s.products);
+  const myProducts = allProducts.filter((p) => p.sellerId === "s1");
+
   const [stocks, setStocks] = useState<Record<string, number>>(() =>
     Object.fromEntries(myProducts.map((p) => [p.id, p.stock]))
   );

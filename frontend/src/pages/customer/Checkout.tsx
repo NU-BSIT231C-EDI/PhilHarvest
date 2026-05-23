@@ -203,38 +203,40 @@ export default function Checkout() {
               </CardContent>
             </Card>
 
-            {/* TAPAT Discount Card (PWD / Senior Citizen) */}
-            <Card className="border-card-border">
-              <CardContent className="p-5">
-                <h3 className="font-bold text-foreground mb-1 flex items-center gap-2"><BadgePercent className="w-4 h-4 text-primary" />TAPAT Discount Card</h3>
-                <p className="text-sm text-muted-foreground mb-4">PWD / Senior Citizen cardholders get the statutory discount (RA 9994 / RA 10754) applied automatically.</p>
-                {approved ? (
-                  <div className="flex items-center justify-between rounded-xl border-2 border-secondary/40 bg-secondary/5 p-3.5">
-                    <div className="flex items-center gap-2.5">
-                      <IdCard className="w-5 h-5 text-secondary" />
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{approved.beneficiary_type === "PWD" ? "PWD" : "Senior Citizen"} card applied</p>
-                        <p className="text-xs text-muted-foreground">{approved.card_id} · {formatPeso(savings)} saved</p>
+            {/* TAPAT Discount Card (PWD / Senior Citizen) — small business only */}
+            {!isCorp && (
+              <Card className="border-card-border">
+                <CardContent className="p-5">
+                  <h3 className="font-bold text-foreground mb-1 flex items-center gap-2"><BadgePercent className="w-4 h-4 text-primary" />TAPAT Discount Card</h3>
+                  <p className="text-sm text-muted-foreground mb-4">PWD / Senior Citizen cardholders get the statutory discount (RA 9994 / RA 10754) applied automatically.</p>
+                  {approved ? (
+                    <div className="flex items-center justify-between rounded-xl border-2 border-secondary/40 bg-secondary/5 p-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <IdCard className="w-5 h-5 text-secondary" />
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{approved.beneficiary_type === "PWD" ? "PWD" : "Senior Citizen"} card applied</p>
+                          <p className="text-xs text-muted-foreground">{approved.card_id} · {formatPeso(savings)} saved</p>
+                        </div>
                       </div>
+                      <Button type="button" variant="ghost" size="sm" onClick={clearTapatCard} data-testid="button-tapat-remove">Remove</Button>
                     </div>
-                    <Button type="button" variant="ghost" size="sm" onClick={clearTapatCard} data-testid="button-tapat-remove">Remove</Button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <Input value={tapatCardId} onChange={(e) => setTapatCardId(e.target.value)} placeholder="Tap or enter card number (e.g. PWD-2024-000123)" data-testid="input-tapat-card" />
-                    <Button type="button" onClick={applyTapatCard} disabled={tapatLoading || !tapatCardId.trim()} className="font-semibold sm:w-32" data-testid="button-tapat-apply">
-                      {tapatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Apply"}
-                    </Button>
-                  </div>
-                )}
-                {tapatError && !approved && (
-                  <p className="mt-2.5 flex items-center gap-1.5 text-sm text-destructive" data-testid="text-tapat-error"><XCircle className="w-4 h-4" />{tapatError}</p>
-                )}
-                {approved?.bnpc_cap_exceeded && (
-                  <p className="mt-2.5 text-xs text-muted-foreground">Weekly ₱2,500 basic-necessities discount cap reached — excess billed at full price.</p>
-                )}
-              </CardContent>
-            </Card>
+                  ) : (
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <Input value={tapatCardId} onChange={(e) => setTapatCardId(e.target.value)} placeholder="Tap or enter card number (e.g. PWD-2024-000123)" data-testid="input-tapat-card" />
+                      <Button type="button" onClick={applyTapatCard} disabled={tapatLoading || !tapatCardId.trim()} className="font-semibold sm:w-32" data-testid="button-tapat-apply">
+                        {tapatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Apply"}
+                      </Button>
+                    </div>
+                  )}
+                  {tapatError && !approved && (
+                    <p className="mt-2.5 flex items-center gap-1.5 text-sm text-destructive" data-testid="text-tapat-error"><XCircle className="w-4 h-4" />{tapatError}</p>
+                  )}
+                  {approved?.bnpc_cap_exceeded && (
+                    <p className="mt-2.5 text-xs text-muted-foreground">Weekly ₱2,500 basic-necessities discount cap reached — excess billed at full price.</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Order Summary */}
