@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 import DashboardLayout from "@/layouts/DashboardLayout";
-import { verifyTapatCard, tapatSavings, formatPeso, type TapatVerifyResult, type TapatLineItem, type ItemCategory } from "@/services/tapatApi";
+import { verifyTapatCard, recordTapatTransaction, tapatSavings, formatPeso, type TapatVerifyResult, type TapatReceipt, type TapatLineItem, type ItemCategory } from "@/services/tapatApi";
 
 const schema = z.object({
   fullName: z.string().min(2),
@@ -61,6 +61,7 @@ export default function Checkout() {
   const [tapatResult, setTapatResult] = useState<TapatVerifyResult | null>(null);
   const [tapatLoading, setTapatLoading] = useState(false);
   const [tapatError, setTapatError] = useState<string | null>(null);
+  const [tapatReceipt, setTapatReceipt] = useState<TapatReceipt | null>(null);
 
   const form = useForm<CheckoutForm>({
     resolver: zodResolver(schema),
@@ -68,6 +69,9 @@ export default function Checkout() {
   });
 
   function onSubmit(_data: CheckoutForm) {
+    // If a TAPAT card was approved, post the discounted sale to the Hub as an
+    // EDI 826 for government compliance reporting (mirrors honeycoffee).
+    if (approved) setTapatReceipt(recordTapatTransaction(approved));
     setOrdered(true);
   }
 
@@ -115,6 +119,21 @@ export default function Checkout() {
             <h2 className="text-2xl font-bold text-foreground mb-2">Order Placed!</h2>
             <p className="text-muted-foreground mb-2">Your order has been successfully placed. You will receive a confirmation shortly.</p>
             <p className="text-sm font-semibold text-primary mb-6">Order #PO-2024-{Math.floor(Math.random() * 999) + 100}</p>
+            {tapatReceipt && (
+              <div className="text-left rounded-xl border border-card-border bg-muted/40 p-4 mb-6" data-testid="tapat-receipt">
+                <p className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+                  <BadgePercent className="w-4 h-4 text-primary" />
+                  TAPAT {tapatReceipt.beneficiary_type === "SC" ? "Senior Citizen" : "PWD"} discount applied
+                </p>
+                <dl className="space-y-1 text-sm">
+                  <div className="flex justify-between"><dt className="text-muted-foreground">Receipt</dt><dd className="font-mono text-xs">{tapatReceipt.receipt_number}</dd></div>
+                  <div className="flex justify-between"><dt className="text-muted-foreground">Gross</dt><dd>{formatPeso(tapatReceipt.gross_amount)}</dd></div>
+                  <div className="flex justify-between"><dt className="text-muted-foreground">VAT removed</dt><dd>−{formatPeso(tapatReceipt.vat_removed)}</dd></div>
+                  <div className="flex justify-between"><dt className="text-muted-foreground">Statutory discount</dt><dd>−{formatPeso(tapatReceipt.discount_amount)}</dd></div>
+                  <div className="flex justify-between font-semibold text-foreground pt-1 border-t border-card-border mt-1"><dt>Goods total</dt><dd>{formatPeso(tapatReceipt.net_total)}</dd></div>
+                </dl>
+              </div>
+            )}
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Button onClick={() => navigate("/customer/orders")} data-testid="button-view-orders">Track My Order</Button>
               <Button variant="outline" onClick={() => navigate("/customer/browse")} data-testid="button-continue-shopping">Continue Shopping</Button>
