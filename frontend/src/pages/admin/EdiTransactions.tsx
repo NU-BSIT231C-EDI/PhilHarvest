@@ -409,6 +409,9 @@ function extractPoFromX12(raw: string | undefined): string | undefined {
   // 810: BIG*{date}*{inv}*{date}*{PO} (BIG04)
   match = raw.match(/BIG\*[^*]*\*[^*]*\*[^*]*\*([^*~\r\n]+)/);
   if (match?.[1]?.trim()) return match[1].trim();
+  // 204: L11*{PO}*PO (L11-01)
+  match = raw.match(/L11\*([^*~\r\n]+)/);
+  if (match?.[1]?.trim()) return match[1].trim();
   return undefined;
 }
 
@@ -450,7 +453,7 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
       docs855: take(byRelated("855")),
       docs856: take(byRelated("856")),
       docs810: take(byRelated("810")),
-      docs204: take(byPartner("204")),
+      docs204: take(byRelated("204")),
       docs990: take(byPartner("990")),
     };
   });
