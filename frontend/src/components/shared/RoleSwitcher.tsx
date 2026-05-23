@@ -11,7 +11,6 @@ const roles: RoleEntry[] = [
   { role: "customer", userType: "small_business", label: "Customer (SMB)", path: "/customer/dashboard", color: "bg-blue-600" },
   { role: "customer", userType: "big_business", label: "Customer (Corp)", path: "/customer/dashboard", color: "bg-indigo-600" },
   { role: "seller", label: "Seller", path: "/seller/dashboard", color: "bg-secondary" },
-  { role: "logistics", label: "Logistics", path: "/logistics/dashboard", color: "bg-orange-500" },
   { role: "admin", label: "Admin", path: "/admin/dashboard", color: "bg-primary" },
 ];
 

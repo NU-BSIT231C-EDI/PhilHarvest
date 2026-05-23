@@ -83,31 +83,6 @@ const navConfig: Record<string, NavGroup[]> = {
       ],
     },
   ],
-  logistics: [
-    {
-      group: "Overview",
-      items: [
-        { label: "Dashboard", href: "/logistics/dashboard", icon: LayoutDashboard },
-      ],
-    },
-    {
-      group: "Deliveries",
-      items: [
-        { label: "Delivery Management", href: "/logistics/deliveries", icon: Truck, badge: 4 },
-        { label: "Shipment Tracking", href: "/logistics/tracking", icon: MapPin },
-        { label: "Proof of Delivery", href: "/logistics/pod", icon: Camera },
-        { label: "Delivery History", href: "/logistics/history", icon: History },
-      ],
-    },
-    {
-      group: "Operations",
-      items: [
-        { label: "Route Management", href: "/logistics/routes", icon: Map },
-        { label: "Driver Management", href: "/logistics/drivers", icon: Users },
-        { label: "Notifications", href: "/logistics/notifications", icon: Bell },
-      ],
-    },
-  ],
   admin: [
     {
       group: "Overview",
@@ -161,7 +136,6 @@ const roleLabels: Record<string, string> = {
 const mockUsers: Record<string, { name: string; email: string; initials: string }> = {
   customer: { name: "Ana Reyes", email: "ana.reyes@email.com", initials: "AR" },
   seller: { name: "Mang Jose Santos", email: "jose.santos@philharvest.ph", initials: "JS" },
-  logistics: { name: "Rolando Diaz", email: "rolando.diaz@logistics.ph", initials: "RD" },
   admin: { name: "Admin User", email: "admin@philharvest.ph", initials: "AU" },
 };
 

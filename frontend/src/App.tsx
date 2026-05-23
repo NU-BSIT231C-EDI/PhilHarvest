@@ -61,15 +61,6 @@ import ContractInventoryTracking from "@/pages/seller/ContractInventoryTracking"
 import SupplyPlanning from "@/pages/seller/SupplyPlanning";
 import EDIAutomation from "@/pages/seller/EDIAutomation";
 
-// Logistics Pages
-import LogisticsDashboard from "@/pages/logistics/Dashboard";
-import LogisticsDeliveries from "@/pages/logistics/Deliveries";
-import LogisticsTracking from "@/pages/logistics/Tracking";
-import LogisticsDrivers from "@/pages/logistics/Drivers";
-import LogisticsRoutes from "@/pages/logistics/Routes";
-import LogisticsProofOfDelivery from "@/pages/logistics/ProofOfDelivery";
-import LogisticsDeliveryHistory from "@/pages/logistics/DeliveryHistory";
-import LogisticsNotifications from "@/pages/logistics/Notifications";
 
 // Admin Pages
 import AdminDashboard from "@/pages/admin/Dashboard";
@@ -104,7 +95,6 @@ function Router() {
       {role !== "admin" && <Route path="/admin/:rest*"><Redirect to="/login" /></Route>}
       {role !== "seller" && role !== "admin" && <Route path="/seller/:rest*"><Redirect to="/login" /></Route>}
       {role !== "customer" && role !== "admin" && <Route path="/customer/:rest*"><Redirect to="/login" /></Route>}
-      {role !== "logistics" && role !== "admin" && <Route path="/logistics/:rest*"><Redirect to="/login" /></Route>}
       {role !== "contract" && role !== "admin" && <Route path="/contract/:rest*"><Redirect to="/login" /></Route>}
 
       {/* Public Routes */}
@@ -162,15 +152,6 @@ function Router() {
       <Route path="/seller/supply-planning" component={SupplyPlanning} />
       <Route path="/seller/edi" component={EDIAutomation} />
 
-      {/* Logistics Routes */}
-      <Route path="/logistics/dashboard" component={LogisticsDashboard} />
-      <Route path="/logistics/deliveries" component={LogisticsDeliveries} />
-      <Route path="/logistics/tracking" component={LogisticsTracking} />
-      <Route path="/logistics/drivers" component={LogisticsDrivers} />
-      <Route path="/logistics/routes" component={LogisticsRoutes} />
-      <Route path="/logistics/pod" component={LogisticsProofOfDelivery} />
-      <Route path="/logistics/history" component={LogisticsDeliveryHistory} />
-      <Route path="/logistics/notifications" component={LogisticsNotifications} />
 
       {/* Admin Routes */}
       <Route path="/admin/dashboard" component={AdminDashboard} />
