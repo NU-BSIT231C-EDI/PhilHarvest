@@ -50,6 +50,7 @@ export default function EdiOutbound() {
   const [poNumber855, setPoNumber855] = useState("PO-001");
   const [poDate855, setPoDate855] = useState(today);
   const [ackCode855, setAckCode855] = useState("AA");
+  const [rejectionReason855, setRejectionReason855] = useState("");
   const [lines855, setLines855] = useState<LineItem855[]>([empty855Line()]);
 
   // 856
@@ -105,6 +106,7 @@ export default function EdiOutbound() {
       if (p.po_number) setPoNumber855(p.po_number as string);
       if (p.po_date) setPoDate855(p.po_date as string);
       if (p.acknowledgment_code) setAckCode855(p.acknowledgment_code as string);
+      if (p.rejection_reason) setRejectionReason855(p.rejection_reason as string);
       if (p.manufacturer_id) setSelectedPartnerId(String(p.manufacturer_id));
       const rawLines = (p.line_acknowledgments as Array<Record<string, unknown>> | undefined) ?? [];
       if (rawLines.length) setLines855(rawLines.map((l, i) => ({ ...empty855Line(i + 1), line_number: String(l.line_number ?? i + 1), acknowledgment_code: (l.acknowledgment_code as string) ?? "AA", accepted_quantity: String(l.accepted_quantity ?? 0), quantity_uom: (l.quantity_uom as string) ?? "KG", part_number: (l.part_number as string) ?? "" })));
@@ -169,6 +171,7 @@ export default function EdiOutbound() {
       po_number: poNumber855, po_date: poDate855,
       manufacturer_id: p?.isa_receiver_id.trim() ?? "",
       acknowledgment_code: ackCode855,
+      ...(ackCode855 === "RE" && rejectionReason855 ? { rejection_reason: rejectionReason855 } : {}),
       manufacturer_address: partnerAddr,
       seller_address: PHILHARVEST_ADDRESS,
       line_acknowledgments: lines855.map((l) => ({ line_number: l.line_number, acknowledgment_code: l.acknowledgment_code, accepted_quantity: parseFloat(l.accepted_quantity) || 0, quantity_uom: l.quantity_uom, ...(l.part_number ? { part_number: l.part_number } : {}) })),
@@ -303,7 +306,7 @@ export default function EdiOutbound() {
                   </div>
                   <div>
                     <Label>Acknowledgment Code</Label>
-                    <Select value={ackCode855} onValueChange={setAckCode855}>
+                    <Select value={ackCode855} onValueChange={(v) => { setAckCode855(v); if (v !== "RE") setRejectionReason855(""); }}>
                       <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="AA">AA — Accepted</SelectItem>
@@ -312,6 +315,12 @@ export default function EdiOutbound() {
                       </SelectContent>
                     </Select>
                   </div>
+                  {ackCode855 === "RE" && (
+                    <div>
+                      <Label>Rejection Reason <span className="text-destructive">*</span></Label>
+                      <Input className="mt-1" placeholder="e.g. Item no longer available, price discrepancy…" value={rejectionReason855} onChange={(e) => setRejectionReason855(e.target.value)} />
+                    </div>
+                  )}
                   <Collapsible defaultOpen>
                     <CollapsibleTrigger asChild>
                       <button className="flex items-center gap-2 text-sm font-medium w-full text-left"><ChevronDown className="w-4 h-4" />Line Acknowledgments ({lines855.length})</button>
