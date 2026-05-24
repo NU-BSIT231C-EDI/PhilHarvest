@@ -8,12 +8,14 @@ import DashboardLayout from "@/layouts/DashboardLayout";
 import StatusBadge from "@/components/shared/StatusBadge";
 import {
   fetchTransactions,
+  fetchTradingPartners,
   retryTransmission,
   deleteTransaction,
   typeLabel,
   mapStatus,
   formatDate,
   type BackendTransaction,
+  type TradingPartner,
 } from "@/services/ediApi";
 import { useEdiPrefill } from "@/store/ediPrefill";
 import { useToast } from "@/hooks/use-toast";
@@ -176,23 +178,36 @@ function build204Prefill(doc: EdiDoc, weightMap: Record<string, number>): Record
   };
 }
 
-function build855Prefill(doc: EdiDoc): Record<string, unknown> {
+function build855Prefill(doc: EdiDoc, excludedSkus: string[] = []): Record<string, unknown> {
   const d = doc.parsedData ?? {};
   const today = new Date().toISOString().slice(0, 10);
   const rawLines = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
-  return {
-    po_number:           (d.po_number as string | undefined) ?? '',
-    po_date:             (d.po_date   as string | undefined) ?? today,
-    manufacturer_id:     doc.partnerId,
-    acknowledgment_code: 'AA',
-    seller_address:      PHILHARVEST_ADDRESS,
-    line_acknowledgments: rawLines.map((li, i) => ({
+  const excluded = new Set(excludedSkus.map((s) => s.trim().toUpperCase()));
+
+  const lineAcks = rawLines.map((li, i) => {
+    const sku = ((li.part_number as string | undefined) ?? '').trim().toUpperCase();
+    const qty = Number(li.quantity ?? 0);
+    const isExcluded = excluded.size > 0 && excluded.has(sku);
+    return {
       line_number:         String(li.line_number ?? i + 1),
-      acknowledgment_code: 'AA',
-      accepted_quantity:   Number(li.quantity ?? 0),
+      acknowledgment_code: isExcluded ? 'RE' : 'AA',
+      accepted_quantity:   isExcluded ? 0 : qty,
+      ...(isExcluded ? { rejected_quantity: qty, rejection_reason: 'Item not covered by supply agreement' } : {}),
       quantity_uom:        (li.quantity_uom as string | undefined) ?? 'EA',
       part_number:         (li.part_number  as string | undefined) ?? '',
-    })),
+    };
+  });
+
+  const rejectedCount = lineAcks.filter((l) => l.acknowledgment_code === 'RE').length;
+  const headerCode = rejectedCount === 0 ? 'AA' : rejectedCount === lineAcks.length ? 'RE' : 'IA';
+
+  return {
+    po_number:            (d.po_number as string | undefined) ?? '',
+    po_date:              (d.po_date   as string | undefined) ?? today,
+    manufacturer_id:      doc.partnerId,
+    acknowledgment_code:  headerCode,
+    seller_address:       PHILHARVEST_ADDRESS,
+    line_acknowledgments: lineAcks,
   };
 }
 
@@ -931,6 +946,7 @@ export default function EdiTransactions() {
   const [selected, setSelected] = useState<EdiDoc | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [weightMap, setWeightMap] = useState<Record<string, number>>({});
+  const [partners, setPartners] = useState<TradingPartner[]>([]);
   const [deletingThread, setDeletingThread] = useState<string | null>(null);
   const { toast } = useToast();
   const { setPrefill } = useEdiPrefill();
@@ -946,6 +962,7 @@ export default function EdiTransactions() {
       }
       setWeightMap(map);
     }).catch(() => {});
+    fetchTradingPartners().then(setPartners).catch(() => {});
   }, []);
 
   const loadDocs = useCallback(() => {
@@ -1013,7 +1030,13 @@ export default function EdiTransactions() {
   }
 
   const actions = {
-    send855: (po: EdiDoc) => prefillAndGo("855", build855Prefill(po), po.id),
+    send855: (po: EdiDoc) => {
+      const partner = partners.find(
+        (p) => p.isa_receiver_id.trim().toUpperCase() === po.partnerId.trim().toUpperCase()
+      );
+      const excludedSkus = partner?.excluded_skus ?? [];
+      prefillAndGo("855", build855Prefill(po, excludedSkus), po.id);
+    },
     send204: (po: EdiDoc) => prefillAndGo("204", build204Prefill(po, weightMap), po.id),
     send856: (po: EdiDoc) => prefillAndGo("856", build856Prefill(po, weightMap), po.id),
     send810: (po: EdiDoc) => prefillAndGo("810", build810Prefill(po), po.id),

@@ -66,6 +66,8 @@ class TradingPartnerController extends Controller
             'default_currency' => ($forUpdate ? 'sometimes|' : '') . 'required|string|size:3',
             'api_endpoint'     => ($forUpdate ? 'sometimes|' : '') . 'required|url',
             'auth_token'       => $tokenRule,
+            'excluded_skus'    => 'nullable|array',
+            'excluded_skus.*'  => 'string',
         ]);
     }
 
@@ -93,6 +95,7 @@ class TradingPartnerController extends Controller
             'api_endpoint'     => $p->api_endpoint,
             'auth_token'       => $token,
             'auth_token_masked' => $masked,
+            'excluded_skus'    => $p->excluded_skus ?? [],
             'n1_segments'      => $p->toEdiN1Loop(),
             'created_at'       => $p->created_at,
             'updated_at'       => $p->updated_at,

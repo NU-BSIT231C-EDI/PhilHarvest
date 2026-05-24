@@ -50,6 +50,7 @@ const emptyForm = {
   default_currency: "PHP",
   api_endpoint:    "",
   auth_token:      "",
+  excluded_skus_raw: "", // comma/newline separated; serialised to array on save
 };
 type FormState = typeof emptyForm;
 
@@ -108,6 +109,7 @@ export default function ContractMonitoring() {
       default_currency: p.default_currency,
       api_endpoint:     p.api_endpoint,
       auth_token:       "",
+      excluded_skus_raw: (p.excluded_skus ?? []).join(", "),
     });
     setDialogOpen(true);
   }
@@ -123,7 +125,13 @@ export default function ContractMonitoring() {
     }
     setSaving(true);
     try {
-      const payload = { ...form, label: form.label || form.company_name } as Omit<TradingPartner, "id" | "auth_token_masked" | "n1_segments" | "created_at" | "updated_at">;
+      const excludedSkus = form.excluded_skus_raw
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const { excluded_skus_raw: _raw, ...rest } = form;
+      void _raw;
+      const payload = { ...rest, label: rest.label || rest.company_name, excluded_skus: excludedSkus } as Omit<TradingPartner, "id" | "auth_token_masked" | "n1_segments" | "created_at" | "updated_at">;
       if (editTarget) {
         if (!form.auth_token.trim()) delete (payload as Record<string, unknown>).auth_token;
         await updateTradingPartner(editTarget.id, payload);
@@ -418,6 +426,19 @@ export default function ContractMonitoring() {
             <div>
               <Label>Auth Token {!editTarget && <span className="text-destructive">*</span>}</Label>
               <Input className="mt-1 font-mono text-xs" placeholder={editTarget ? "Leave blank to keep current token" : "Paste token here"} value={form.auth_token} onChange={(e) => field("auth_token", e.target.value)} />
+            </div>
+            <div>
+              <Label>Excluded SKUs</Label>
+              <p className="text-xs text-muted-foreground mt-0.5 mb-1.5">
+                Items this partner is <strong>not</strong> permitted to order. Enter SKUs separated by commas or one per line. Leave blank for no restrictions.
+              </p>
+              <textarea
+                className="w-full min-h-20 rounded-md border border-input bg-background px-3 py-2 text-xs font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+                placeholder={"SKU-APF-001, SKU-APF-002"}
+                value={form.excluded_skus_raw}
+                onChange={(e) => field("excluded_skus_raw", e.target.value)}
+                data-testid="input-excluded-skus"
+              />
             </div>
             <Button className="w-full" onClick={handleSave} disabled={saving} data-testid="button-save-partner">
               {saving ? "Saving…" : editTarget ? "Update Partner" : "Add Partner"}

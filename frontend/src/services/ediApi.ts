@@ -257,6 +257,7 @@ export interface TradingPartner {
   api_endpoint: string;
   auth_token: string;
   auth_token_masked?: string;
+  excluded_skus?: string[] | null;
   n1_segments?: string[];
   created_at?: string;
   updated_at?: string;

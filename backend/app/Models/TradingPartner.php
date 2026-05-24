@@ -21,10 +21,12 @@ class TradingPartner extends Model
         'default_currency',
         'api_endpoint',
         'auth_token',
+        'excluded_skus',
     ];
 
     protected $casts = [
-        'auth_token' => 'encrypted',
+        'auth_token'    => 'encrypted',
+        'excluded_skus' => 'array',
     ];
 
     /** Auto-pad ISA receiver ID to exactly 15 chars (right-padded with spaces). */
