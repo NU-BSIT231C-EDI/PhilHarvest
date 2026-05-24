@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Send, Copy, Check, ChevronDown, Eye } from "lucide-react";
 import { previewEdi, send856, send810, send855, send204, fetchTradingPartners, type TradingPartner } from "@/services/ediApi";
+import { fetchProducts } from "@/services/productsApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -94,6 +95,40 @@ export default function EdiOutbound() {
   }, []);
 
   useEffect(() => { loadPartners(); }, [loadPartners]);
+
+  // weight_kg per SKU (converted to lb) — used for auto-computing ship weights
+  const [weightMap, setWeightMap] = useState<Record<string, number>>({});
+  useEffect(() => {
+    fetchProducts({ per_page: 500 }).then((page) => {
+      const map: Record<string, number> = {};
+      for (const p of page.data) {
+        if (p.sku && p.weight_kg != null) {
+          map[p.sku.trim().toUpperCase()] = Number(p.weight_kg) * 2.20462;
+        }
+      }
+      setWeightMap(map);
+    }).catch(() => {});
+  }, []);
+
+  // Auto-compute 856 total weight whenever line items change
+  useEffect(() => {
+    const computed = lines856.reduce((sum, li) => {
+      const sku = li.part_number.trim().toUpperCase();
+      const wlb = weightMap[sku] ?? 0;
+      return sum + (Number.parseFloat(li.shipped_quantity) || 0) * wlb;
+    }, 0);
+    if (computed > 0) setTotalWeight(String(Math.round(computed * 1000) / 1000));
+  }, [lines856, weightMap]);
+
+  // Derived 204 weight from 856 line items — used as fallback when user hasn't typed one
+  const computed204Weight = useMemo(() => {
+    const w = lines856.reduce((sum, li) => {
+      const sku = li.part_number.trim().toUpperCase();
+      const wlb = weightMap[sku] ?? 0;
+      return sum + (Number.parseFloat(li.shipped_quantity) || 0) * wlb;
+    }, 0);
+    return w > 0 ? String(Math.round(w * 1000) / 1000) : "";
+  }, [lines856, weightMap]);
 
   // Apply prefill from EdiTransactions cross-page navigation
   useEffect(() => {
@@ -213,7 +248,7 @@ export default function EdiOutbound() {
     return {
       load_tender_id: loadTenderId,
       ...(poNumber204 ? { po_number: poNumber204 } : {}),
-      ...(shipmentWeight204 ? { shipment_weight: parseFloat(shipmentWeight204) } : {}),
+      ...(shipmentWeight204 || computed204Weight ? { shipment_weight: Number.parseFloat(shipmentWeight204 || computed204Weight) } : {}),
       shipper_company_name: "PHILHARVEST",
       shipper_address: PHILHARVEST_ADDRESS,
       carrier_code: p?.isa_receiver_id.trim() ?? "",
@@ -477,7 +512,7 @@ export default function EdiOutbound() {
                     <div><Label>PO Number</Label><Input className="mt-1 font-mono text-sm" placeholder="Links to 850 thread" value={poNumber204} onChange={(e) => setPoNumber204(e.target.value)} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><Label>Total Weight (LB)</Label><Input className="mt-1" type="number" placeholder="Auto-filled from inventory" value={shipmentWeight204} onChange={(e) => setShipmentWeight204(e.target.value)} /></div>
+                    <div><Label>Total Weight (LB){computed204Weight && !shipmentWeight204 && <span className="ml-1 text-xs text-muted-foreground font-normal">(computed: {computed204Weight} lb)</span>}</Label><Input className="mt-1" type="number" placeholder={computed204Weight || "Auto-filled from line items"} value={shipmentWeight204} onChange={(e) => setShipmentWeight204(e.target.value)} /></div>
                     <div><Label>Carrier Name</Label><Input className="mt-1" placeholder="Defaults to partner name" value={carrierName} onChange={(e) => setCarrierName(e.target.value)} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">

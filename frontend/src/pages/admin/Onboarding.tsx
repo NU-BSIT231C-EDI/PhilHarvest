@@ -492,10 +492,57 @@ export default function AdminOnboarding() {
               <div>
                 <Label>Authorized Sellers <span className="text-destructive">*</span></Label>
                 <div className="mt-2 space-y-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <Checkbox checked={s2.allSellers} onCheckedChange={(v) => setS2((p) => ({ ...p, allSellers: !!v, authorizedSellers: [] }))} />
-                    <span className="text-sm">All Sellers</span>
-                  </label>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox checked={s2.allSellers} onCheckedChange={(v) => setS2((p) => ({ ...p, allSellers: !!v, authorizedSellers: [] }))} />
+                      <span className="text-sm">All Sellers</span>
+                    </label>
+                    <Button
+                      type="button" size="sm" variant="outline"
+                      className="h-7 text-xs px-2.5"
+                      disabled={availableProducts.length === 0}
+                      onClick={() => {
+                        setS2((p) => ({
+                          ...p,
+                          products: Object.fromEntries(
+                            availableProducts.map((prod) => [
+                              prod.id,
+                              {
+                                included:    true,
+                                quantity:    p.products[prod.id]?.quantity ?? "",
+                                agreedPrice: p.products[prod.id]?.agreedPrice ?? "",
+                              },
+                            ])
+                          ),
+                        }));
+                        if (s2errors.products) setS2Errors((p) => { const e = { ...p }; delete e.products; return e; });
+                      }}
+                    >
+                      All Products
+                    </Button>
+                    <Button
+                      type="button" size="sm" variant="outline"
+                      className="h-7 text-xs px-2.5"
+                      disabled={availableProducts.length === 0}
+                      onClick={() => {
+                        setS2((p) => ({
+                          ...p,
+                          products: Object.fromEntries(
+                            availableProducts.map((prod) => [
+                              prod.id,
+                              {
+                                included:    p.products[prod.id]?.included ?? false,
+                                quantity:    "250",
+                                agreedPrice: "25",
+                              },
+                            ])
+                          ),
+                        }));
+                      }}
+                    >
+                      Default Qty &amp; Price
+                    </Button>
+                  </div>
                   {!s2.allSellers && (
                     <div className="border border-border rounded-lg p-3 space-y-2">
                       {sellers.map((sel) => (
