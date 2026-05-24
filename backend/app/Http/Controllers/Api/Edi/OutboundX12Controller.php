@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Edi;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use App\Services\Edi\Generators\Edi846Generator;
 use App\Services\Edi\Generators\Edi855Generator;
 use App\Services\Edi\Generators\Edi204Generator;
 use App\Services\Edi\Generators\Edi856Generator;
@@ -32,6 +33,7 @@ class OutboundX12Controller
 {
     private const VALIDATION_FAILED = 'Validation failed';
 
+    private Edi846Generator $edi846Generator;
     private Edi855Generator $edi855Generator;
     private Edi204Generator $edi204Generator;
     private Edi856Generator $edi856Generator;
@@ -39,12 +41,14 @@ class OutboundX12Controller
     private OutboundEdiTransmissionService $transmissionService;
 
     public function __construct(
+        Edi846Generator $edi846Generator,
         Edi855Generator $edi855Generator,
         Edi204Generator $edi204Generator,
         Edi856Generator $edi856Generator,
         Edi810Generator $edi810Generator,
         OutboundEdiTransmissionService $transmissionService
     ) {
+        $this->edi846Generator = $edi846Generator;
         $this->edi855Generator = $edi855Generator;
         $this->edi204Generator = $edi204Generator;
         $this->edi856Generator = $edi856Generator;
@@ -871,6 +875,59 @@ class OutboundX12Controller
             ]);
             return response()->json([
                 'error' => 'Preview failed',
+                'message' => $e->getMessage(),
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Generate and send EDI 846 (Inventory Advice) to Manufacturer
+     * POST /api/edi/846/send
+     *
+     * Request body:
+     * {
+     *   "reference_number": "INVEN-2026-05-24-001",  // optional
+     *   "warehouse_name":   "PHILHARVEST WAREHOUSE",  // optional
+     *   "vendor_id":        "PHILHARVEST",            // optional
+     *   "items": [
+     *     { "sku": "SKU-001", "upc": "123456789012", "quantity": 150, "uom": "EA" }
+     *   ]
+     * }
+     */
+    public function send846(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'items'             => 'required|array|min:1',
+                'items.*.sku'       => 'required|string',
+                'items.*.quantity'  => 'required|integer|min:0',
+                'items.*.uom'       => 'nullable|string',
+                'items.*.upc'       => 'nullable|string',
+                'reference_number'  => 'nullable|string',
+                'warehouse_name'    => 'nullable|string',
+                'vendor_id'         => 'nullable|string',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'error' => self::VALIDATION_FAILED,
+                    'message' => $validator->errors(),
+                ], Response::HTTP_UNPROCESSABLE_ENTITY);
+            }
+
+            $x12 = $this->edi846Generator->generate($request->all());
+            $transaction = $this->transmissionService->send846($x12);
+
+            return response()->json([
+                'transaction_id' => $transaction->id,
+                'control_number' => $transaction->control_number,
+                'status'         => $transaction->status,
+            ], Response::HTTP_ACCEPTED);
+
+        } catch (\Exception $e) {
+            Log::error('846 generation failed: ' . $e->getMessage());
+            return response()->json([
+                'error'   => 'Send failed',
                 'message' => $e->getMessage(),
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }

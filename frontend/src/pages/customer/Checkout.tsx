@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useLocation } from "wouter";
 import { CheckCircle, CreditCard, Wallet, Banknote, MapPin, BadgePercent, IdCard, Loader2, XCircle, AlertTriangle, FileText } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
+import { useCart } from "@/contexts/CartContext";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -32,14 +33,7 @@ const paymentMethods = [
 ];
 
 // Fresh agri produce is treated as a basic necessity / prime commodity (BNPC)
-// for the statutory 5% discount (JAO 24-02). Swap to "GENERAL" for non-food SKUs.
-const cartSummary: Array<{ name: string; sku: string; qty: number; price: number; category: ItemCategory }> = [
-  { name: "Benguet Tomatoes", sku: "AGRI-TOMATO", qty: 5, price: 85, category: "BNPC" },
-  { name: "Carabao Mangoes", sku: "AGRI-MANGO", qty: 3, price: 180, category: "BNPC" },
-  { name: "Pechay (Bok Choy)", sku: "AGRI-PECHAY", qty: 2, price: 40, category: "BNPC" },
-];
-
-// Mock contract state — in production this would come from a contracts API call
+// for the statutory 5% discount (JAO 24-02).
 const mockCorpContract = {
   contractNumber: "CTR-2024-001",
   status: "active" as const,
@@ -52,8 +46,8 @@ export default function Checkout() {
   const [ordered, setOrdered] = useState(false);
   const [, navigate] = useLocation();
   const { userType } = useAuthStore();
+  const { cart } = useCart();
   const isCorp = userType === "big_business";
-  // Swap between true/false here to demo both contract states
   const hasActiveContract = true;
   const activeContract = hasActiveContract ? mockCorpContract : null;
 
@@ -75,11 +69,14 @@ export default function Checkout() {
     setOrdered(true);
   }
 
-  const subtotal = cartSummary.reduce((s, i) => s + i.price * i.qty, 0);
+  const subtotal = useMemo(() => cart.reduce((s, i) => s + i.price * i.quantity, 0), [cart]);
 
-  const tapatItems: TapatLineItem[] = cartSummary.map((i) => ({
-    sku: i.sku, qty: i.qty, unit_price: i.price, category: i.category,
-  }));
+  const tapatItems: TapatLineItem[] = useMemo(() => cart.map((i) => ({
+    sku: `AGRI-${i.productId}`,
+    qty: i.quantity,
+    unit_price: i.price,
+    category: "BNPC",
+  })), [cart]);
 
   async function applyTapatCard() {
     setTapatLoading(true);
@@ -102,7 +99,7 @@ export default function Checkout() {
     setTapatError(null);
   }
 
-  const approved = tapatResult && tapatResult.approved ? tapatResult : null;
+  const approved = tapatResult?.approved ? tapatResult : null;
   const savings = approved ? tapatSavings(approved.discount) : 0;
   const deliveryFee = 150;
   const goodsTotal = approved ? approved.discount.net_total : subtotal;
@@ -264,10 +261,10 @@ export default function Checkout() {
               <CardContent className="p-5 space-y-4">
                 <h3 className="font-bold text-foreground">Order Summary</h3>
                 <div className="space-y-2">
-                  {cartSummary.map((item) => (
-                    <div key={item.name} className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">{item.name} × {item.qty}</span>
-                      <span>₱{(item.price * item.qty).toLocaleString()}</span>
+                  {cart.map((item) => (
+                    <div key={item.productId} className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">{item.productName} × {item.quantity}</span>
+                      <span>₱{(item.price * item.quantity).toLocaleString()}</span>
                     </div>
                   ))}
                 </div>

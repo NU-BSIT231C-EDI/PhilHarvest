@@ -1,48 +1,83 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import PublicLayout from "@/layouts/PublicLayout";
 import ProductCard from "@/components/shared/ProductCard";
 import EmptyState from "@/components/shared/EmptyState";
-import { products, categories } from "@/data/mockData";
 import { ShoppingBag } from "lucide-react";
 import { useCart } from "@/contexts/CartContext";
 import { useToast } from "@/hooks/use-toast";
+import { fetchProducts, type ApiProduct } from "@/services/productsApi";
+import type { Product } from "@/types";
 
-const regions = ["All Regions", "CAR (Benguet)", "Region I (Ilocos)", "Region IV-A (Batangas)", "Region VII (Cebu)", "Region XI (Davao)"];
+function apiToProduct(p: ApiProduct): Product {
+  return {
+    id: String(p.id),
+    name: p.name,
+    category: p.category ?? "other",
+    description: p.description ?? "",
+    price: parseFloat(p.unit_price),
+    unit: p.unit_of_measure,
+    stock: p.stock_quantity,
+    sellerId: p.seller_name ?? "unknown",
+    sellerName: p.seller_name ?? "Unknown Seller",
+    sellerRegion: "Philippines",
+    images: p.image_url ? [p.image_url] : [],
+    rating: 0,
+    reviewCount: 0,
+    status: p.is_active ? "active" : "inactive",
+    featured: false,
+    createdAt: p.created_at,
+  };
+}
 
 export default function Marketplace() {
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [sortBy, setSortBy] = useState("featured");
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
-  const [selectedRegion, setSelectedRegion] = useState("All Regions");
   const { addToCart } = useCart();
   const { toast } = useToast();
+
+  useEffect(() => {
+    fetchProducts({ active: true, per_page: 100 })
+      .then((page) => setAllProducts(page.data.map(apiToProduct)))
+      .catch(() => toast({ title: "Failed to load products", variant: "destructive" }))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const categories = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of allProducts) map.set(p.category, (map.get(p.category) ?? 0) + 1);
+    return Array.from(map.entries()).map(([id, productCount]) => ({
+      id,
+      name: id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, " "),
+      productCount,
+      icon: "",
+    }));
+  }, [allProducts]);
 
   const minVal = priceMin !== "" ? Number(priceMin) : null;
   const maxVal = priceMax !== "" ? Number(priceMax) : null;
 
   const filtered = useMemo(() => {
-    let list = [...products];
+    let list = [...allProducts];
     if (search) list = list.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase()));
     if (selectedCategory !== "all") list = list.filter((p) => p.category === selectedCategory);
-    if (selectedRegion !== "All Regions") list = list.filter((p) => p.sellerRegion.toLowerCase().includes(selectedRegion.split("(")[1]?.replace(")", "").toLowerCase() || ""));
     if (minVal !== null) list = list.filter((p) => p.price >= minVal);
     if (maxVal !== null) list = list.filter((p) => p.price <= maxVal);
     if (sortBy === "price_asc") list.sort((a, b) => a.price - b.price);
     else if (sortBy === "price_desc") list.sort((a, b) => b.price - a.price);
     else if (sortBy === "rating") list.sort((a, b) => b.rating - a.rating);
-    else if (sortBy === "featured") list.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
     return list;
-  }, [search, selectedCategory, sortBy, minVal, maxVal, selectedRegion]);
+  }, [allProducts, search, selectedCategory, sortBy, minVal, maxVal]);
 
   const priceFilterLabel =
     minVal !== null && maxVal !== null
@@ -55,7 +90,6 @@ export default function Marketplace() {
 
   const activeFilters = [
     selectedCategory !== "all" && categories.find((c) => c.id === selectedCategory)?.name,
-    selectedRegion !== "All Regions" && selectedRegion,
     priceFilterLabel,
   ].filter(Boolean) as string[];
 
@@ -74,7 +108,7 @@ export default function Marketplace() {
             className={`w-full flex items-center justify-between text-sm px-3 py-2 rounded-lg transition-colors ${selectedCategory === "all" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
           >
             <span>All Products</span>
-            <Badge variant="secondary" className="text-xs">{products.length}</Badge>
+            <Badge variant="secondary" className="text-xs">{allProducts.length}</Badge>
           </button>
           {categories.map((cat) => (
             <button
@@ -126,17 +160,6 @@ export default function Marketplace() {
           </button>
         )}
       </div>
-      <div>
-        <h4 className="font-semibold text-sm mb-3">Region</h4>
-        <div className="space-y-2">
-          {regions.map((r) => (
-            <div key={r} className="flex items-center gap-2">
-              <Checkbox id={r} checked={selectedRegion === r} onCheckedChange={() => setSelectedRegion(r)} />
-              <Label htmlFor={r} className="text-sm cursor-pointer">{r}</Label>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 
@@ -145,7 +168,9 @@ export default function Marketplace() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-foreground">Fresh Marketplace</h1>
-          <p className="text-muted-foreground text-sm mt-1">Direct from Filipino farms — {products.length} products available</p>
+          <p className="text-muted-foreground text-sm mt-1">
+            {loading ? "Loading products…" : `Direct from Filipino farms — ${allProducts.length} products available`}
+          </p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
@@ -192,13 +217,12 @@ export default function Marketplace() {
             {activeFilters.map((f) => (
               <Badge key={f} variant="secondary" className="gap-1 cursor-pointer" onClick={() => {
                 if (categories.find((c) => c.name === f)) setSelectedCategory("all");
-                else if (f === selectedRegion) setSelectedRegion("All Regions");
                 else { setPriceMin(""); setPriceMax(""); }
               }}>
                 {f} <X className="w-3 h-3" />
               </Badge>
             ))}
-            <button className="text-xs text-primary hover:underline" onClick={() => { setSelectedCategory("all"); setSelectedRegion("All Regions"); setPriceMin(""); setPriceMax(""); }}>Clear all</button>
+            <button className="text-xs text-primary hover:underline" onClick={() => { setSelectedCategory("all"); setPriceMin(""); setPriceMax(""); }}>Clear all</button>
           </div>
         )}
 
@@ -207,7 +231,7 @@ export default function Marketplace() {
             <div className="bg-card border border-card-border rounded-xl p-5 sticky top-20">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-foreground">Filters</h3>
-                <button className="text-xs text-primary hover:underline" onClick={() => { setSelectedCategory("all"); setSelectedRegion("All Regions"); setPriceMin(""); setPriceMax(""); }}>Clear</button>
+                <button className="text-xs text-primary hover:underline" onClick={() => { setSelectedCategory("all"); setPriceMin(""); setPriceMax(""); }}>Clear</button>
               </div>
               <FilterContent />
             </div>

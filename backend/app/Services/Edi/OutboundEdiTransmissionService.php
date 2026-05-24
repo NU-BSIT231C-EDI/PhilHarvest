@@ -80,6 +80,24 @@ class OutboundEdiTransmissionService
     }
 
     /**
+     * Send EDI 846 (Inventory Advice) to Manufacturer
+     */
+    public function send846(string $x12Payload): EdiTransaction
+    {
+        $partnerCode = Config::get('edi-partners.manufacturer.code', 'SERMACROPS');
+        $transaction = EdiTransaction::create([
+            'transaction_type' => '846',
+            'control_number' => $this->extractControlNumber($x12Payload),
+            'partner_id' => $partnerCode,
+            'raw_payload' => $x12Payload,
+            'generated_x12_payload' => $x12Payload,
+            'status' => 'PENDING',
+        ]);
+
+        return $this->transmit($transaction, '846', 'manufacturer');
+    }
+
+    /**
      * Send EDI 810 (Invoice) to Manufacturer
      */
     public function send810(string $x12Payload): EdiTransaction
@@ -279,7 +297,7 @@ class OutboundEdiTransmissionService
     {
         return match ($transaction->transaction_type) {
             '204', '990' => 'logistics',
-            '855', '856', '810', '850' => 'manufacturer',
+            '846', '855', '856', '810', '850' => 'manufacturer',
             default => strtolower($transaction->partner_id),
         };
     }

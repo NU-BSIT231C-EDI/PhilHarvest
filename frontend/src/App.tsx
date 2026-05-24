@@ -81,7 +81,6 @@ import AdminProofOfDelivery from "@/pages/admin/ProofOfDelivery";
 import AdminDeliveryHistory from "@/pages/admin/AdminDeliveryHistory";
 import EdiDashboard from "@/pages/admin/EdiDashboard";
 import EdiTransactions from "@/pages/admin/EdiTransactions";
-import EdiCompanies from "@/pages/admin/EdiCompanies";
 import EdiOutbound from "@/pages/admin/EdiOutbound";
 import AdminOnboarding from "@/pages/admin/Onboarding";
 
@@ -172,7 +171,7 @@ function Router() {
       <Route path="/admin/delivery-history" component={AdminDeliveryHistory} />
       <Route path="/admin/edi/dashboard" component={EdiDashboard} />
       <Route path="/admin/edi/transactions" component={EdiTransactions} />
-      <Route path="/admin/edi/companies" component={EdiCompanies} />
+      <Route path="/admin/edi/companies"><Redirect to="/admin/contracts" /></Route>
       <Route path="/admin/onboarding" component={AdminOnboarding} />
       <Route path="/admin/edi/outbound" component={EdiOutbound} />
 

@@ -1,89 +1,197 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
-import { Handshake, TrendingUp, Clock, AlertTriangle, Plus, Search } from "lucide-react";
-import DashboardLayout from "@/layouts/DashboardLayout";
+import { useState, useEffect, useCallback } from "react";
+import {
+  Building2, Plus, Search, Edit, Trash2, Eye, EyeOff,
+  Copy, Check, RefreshCw, Users, ShoppingCart, Factory, Truck,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { useContractStore } from "@/store";
-import type { ContractStatus } from "@/types";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import DashboardLayout from "@/layouts/DashboardLayout";
+import { useToast } from "@/hooks/use-toast";
+import {
+  fetchTradingPartners,
+  createTradingPartner,
+  updateTradingPartner,
+  deleteTradingPartner,
+  type TradingPartner,
+} from "@/services/ediApi";
 
-const statusColor: Record<ContractStatus, string> = {
-  active:      "bg-green-100 text-green-700 border-green-200",
-  approved:    "bg-blue-100 text-blue-700 border-blue-200",
-  negotiating: "bg-yellow-100 text-yellow-700 border-yellow-200",
-  pending:     "bg-orange-100 text-orange-700 border-orange-200",
-  expired:     "bg-gray-100 text-gray-600 border-gray-200",
-  draft:       "bg-slate-100 text-slate-600 border-slate-200",
-  rejected:    "bg-red-100 text-red-700 border-red-200",
+const ROLE_META: Record<TradingPartner["edi_role"], { label: string; color: string; icon: React.ElementType; chart: string }> = {
+  BY: { label: "Buyer",         color: "bg-blue-100 text-blue-700 border-blue-200",    icon: ShoppingCart, chart: "#3b82f6" },
+  SE: { label: "Manufacturer",  color: "bg-green-100 text-green-700 border-green-200", icon: Factory,      chart: "#22c55e" },
+  SF: { label: "Ship From",     color: "bg-purple-100 text-purple-700 border-purple-200", icon: Truck,     chart: "#a855f7" },
+  ST: { label: "Ship To",       color: "bg-orange-100 text-orange-700 border-orange-200", icon: Truck,     chart: "#f97316" },
 };
 
-const PIE_COLORS = ["#22c55e", "#3b82f6", "#eab308", "#f97316", "#6b7280", "#94a3b8", "#ef4444"];
+const EDI_ROLES = [
+  { value: "BY", label: "BY — Buyer" },
+  { value: "SE", label: "SE — Selling Party / Manufacturer" },
+  { value: "SF", label: "SF — Ship From" },
+  { value: "ST", label: "ST — Ship To" },
+];
 
-function getRemainingMonths(endDate: string) {
-  const end = new Date(endDate);
-  const now = new Date();
-  return Math.max(0, (end.getFullYear() - now.getFullYear()) * 12 + (end.getMonth() - now.getMonth()));
+const emptyForm = {
+  label:           "",
+  isa_receiver_id: "",
+  company_name:    "",
+  edi_role:        "BY" as TradingPartner["edi_role"],
+  address_line_1:  "",
+  address_line_2:  "",
+  city:            "",
+  state:           "",
+  postal_code:     "",
+  country:         "PH",
+  po_number_format: "PO-{number}",
+  default_currency: "PHP",
+  api_endpoint:    "",
+  auth_token:      "",
+};
+type FormState = typeof emptyForm;
+
+function maskToken(token: string) {
+  if (!token) return "—";
+  return token.slice(0, 8) + "•".repeat(Math.max(token.length - 12, 4)) + token.slice(-4);
 }
 
-const ALL_STATUSES: ContractStatus[] = ["draft", "pending", "negotiating", "approved", "active", "expired", "rejected"];
-
-export default function AdminContractMonitoring() {
-  const [, navigate] = useLocation();
-  const { contracts } = useContractStore();
+export default function ContractMonitoring() {
+  const [partners, setPartners]     = useState<TradingPartner[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [saving, setSaving]         = useState(false);
   const [search, setSearch]         = useState("");
-  const [statusFilter, setStatus]   = useState("all");
-  const [dateFrom, setDateFrom]     = useState("");
-  const [dateTo, setDateTo]         = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<TradingPartner | null>(null);
+  const [form, setForm]             = useState<FormState>(emptyForm);
+  const [revealedId, setRevealedId] = useState<number | null>(null);
+  const [copiedId, setCopiedId]     = useState<number | null>(null);
+  const { toast } = useToast();
 
-  const filtered = contracts.filter((c) => {
-    const matchSearch = (
-      c.contractNumber.toLowerCase().includes(search.toLowerCase()) ||
-      c.companyName.toLowerCase().includes(search.toLowerCase()) ||
-      c.sellerName.toLowerCase().includes(search.toLowerCase())
-    );
-    const matchStatus = statusFilter === "all" || c.status === statusFilter;
-    const matchFrom   = !dateFrom || c.startDate >= dateFrom;
-    const matchTo     = !dateTo   || c.endDate   <= dateTo;
-    return matchSearch && matchStatus && matchFrom && matchTo;
+  const load = useCallback(() => {
+    setLoading(true);
+    fetchTradingPartners()
+      .then(setPartners)
+      .catch((err) => toast({ title: "Failed to load partners", description: err.message, variant: "destructive" }))
+      .finally(() => setLoading(false));
+  }, [toast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  function field<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function openAdd() {
+    setEditTarget(null);
+    setForm(emptyForm);
+    setDialogOpen(true);
+  }
+
+  function openEdit(p: TradingPartner) {
+    setEditTarget(p);
+    setForm({
+      label:            p.label,
+      isa_receiver_id:  p.isa_receiver_id.trim(),
+      company_name:     p.company_name,
+      edi_role:         p.edi_role,
+      address_line_1:   p.address_line_1,
+      address_line_2:   p.address_line_2 ?? "",
+      city:             p.city,
+      state:            p.state ?? "",
+      postal_code:      p.postal_code,
+      country:          p.country,
+      po_number_format: p.po_number_format,
+      default_currency: p.default_currency,
+      api_endpoint:     p.api_endpoint,
+      auth_token:       "",
+    });
+    setDialogOpen(true);
+  }
+
+  async function handleSave() {
+    if (!form.company_name.trim() || !form.isa_receiver_id.trim() || !form.api_endpoint.trim()) {
+      toast({ title: "Missing required fields", description: "Company name, ISA Receiver ID, and Endpoint are required.", variant: "destructive" });
+      return;
+    }
+    if (!editTarget && !form.auth_token.trim()) {
+      toast({ title: "Auth token required", description: "Provide an auth token for the new partner.", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = { ...form, label: form.label || form.company_name } as Omit<TradingPartner, "id" | "auth_token_masked" | "n1_segments" | "created_at" | "updated_at">;
+      if (editTarget) {
+        if (!form.auth_token.trim()) delete (payload as Record<string, unknown>).auth_token;
+        await updateTradingPartner(editTarget.id, payload);
+        toast({ title: "Partner updated", description: `${form.company_name} has been updated.` });
+      } else {
+        await createTradingPartner(payload);
+        toast({ title: "Partner added", description: `${form.company_name} added as a trading partner.` });
+      }
+      setDialogOpen(false);
+      load();
+    } catch (err: unknown) {
+      toast({ title: "Save failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(p: TradingPartner) {
+    if (!confirm(`Remove "${p.company_name}" from trading partners?`)) return;
+    try {
+      await deleteTradingPartner(p.id);
+      toast({ title: "Partner removed", description: `${p.company_name} has been removed.` });
+      load();
+    } catch (err: unknown) {
+      toast({ title: "Delete failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    }
+  }
+
+  function copyToken(p: TradingPartner) {
+    navigator.clipboard.writeText(p.auth_token).then(() => {
+      setCopiedId(p.id);
+      toast({ title: "Token copied to clipboard" });
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  }
+
+  const displayToken = (p: TradingPartner) =>
+    revealedId === p.id ? p.auth_token : (p.auth_token_masked ?? maskToken(p.auth_token));
+
+  const filtered = partners.filter((p) => {
+    const q = search.toLowerCase();
+    const matchSearch = !q || p.company_name.toLowerCase().includes(q) || p.isa_receiver_id.toLowerCase().includes(q) || p.city.toLowerCase().includes(q);
+    const matchRole = roleFilter === "all" || p.edi_role === roleFilter;
+    return matchSearch && matchRole;
   });
 
-  const totalValue = contracts.filter((c) => c.status === "active").reduce((s, c) => s + c.totalContractValue, 0);
-  const expiring   = contracts.filter((c) => c.status === "active" && getRemainingMonths(c.endDate) <= 2);
+  // Stats
+  const byRole = (role: TradingPartner["edi_role"]) => partners.filter((p) => p.edi_role === role).length;
 
-  const statusBreakdown = ALL_STATUSES.map((s) => ({
-    name: s, value: contracts.filter((c) => c.status === s).length,
-  })).filter((s) => s.value > 0);
-
-  const valueBySupplier = contracts
-    .filter((c) => c.status === "active")
-    .reduce<Record<string, number>>((acc, c) => {
-      acc[c.sellerName] = (acc[c.sellerName] || 0) + c.totalContractValue;
-      return acc;
-    }, {});
-
-  const supplierChartData = Object.entries(valueBySupplier).map(([name, value]) => ({
-    name: name.split(" ").slice(0, 2).join(" "), value,
-  }));
+  const pieData = (["BY", "SE", "SF", "ST"] as const)
+    .map((r) => ({ name: ROLE_META[r].label, value: byRole(r), fill: ROLE_META[r].chart }))
+    .filter((d) => d.value > 0);
 
   return (
     <DashboardLayout role="admin" title="Contract Monitoring">
       <div className="p-6 space-y-6">
+
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: "Total Contracts",  value: contracts.length,                                    icon: Handshake,    color: "text-blue-600",   bg: "bg-blue-50" },
-            { label: "Active Value",     value: `₱${(totalValue / 1000).toFixed(0)}K`,              icon: TrendingUp,   color: "text-green-600",  bg: "bg-green-50" },
-            { label: "Pending Review",   value: contracts.filter((c) => c.status === "pending").length, icon: Clock,    color: "text-yellow-600", bg: "bg-yellow-50" },
-            { label: "Expiring Soon",    value: expiring.length,                                     icon: AlertTriangle, color: "text-orange-600", bg: "bg-orange-50" },
+            { label: "Total Partners",    value: partners.length, icon: Users,        bg: "bg-slate-100",   color: "text-slate-600" },
+            { label: "Buyers",            value: byRole("BY"),    icon: ShoppingCart, bg: "bg-blue-50",     color: "text-blue-600"  },
+            { label: "Manufacturers",     value: byRole("SE"),    icon: Factory,      bg: "bg-green-50",    color: "text-green-600" },
+            { label: "Logistics / Other", value: byRole("SF") + byRole("ST"), icon: Truck, bg: "bg-purple-50", color: "text-purple-600" },
           ].map((s) => (
             <Card key={s.label}>
               <CardContent className="p-5 flex items-center gap-4">
-                <div className={`w-11 h-11 rounded-xl ${s.bg} flex items-center justify-center`}>
+                <div className={`w-11 h-11 rounded-xl ${s.bg} flex items-center justify-center shrink-0`}>
                   <s.icon className={`w-5 h-5 ${s.color}`} />
                 </div>
                 <div>
@@ -95,133 +203,228 @@ export default function AdminContractMonitoring() {
           ))}
         </div>
 
-        <div className="grid lg:grid-cols-2 gap-6">
+        {/* Role distribution chart */}
+        {pieData.length > 0 && (
           <Card>
-            <CardHeader><CardTitle className="text-base">Status Distribution</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Partners by EDI Role</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={200}>
                 <PieChart>
-                  <Pie data={statusBreakdown} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}
-                    label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}>
-                    {statusBreakdown.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75}
+                    label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                    labelLine={false}>
+                    {pieData.map((d, i) => <Cell key={i} fill={d.fill} />)}
                   </Pie>
                   <Tooltip />
+                  <Legend />
                 </PieChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader><CardTitle className="text-base">Active Contract Value by Supplier</CardTitle></CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={supplierChartData} barSize={24}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `₱${(v / 1000).toFixed(0)}K`} />
-                  <Tooltip formatter={(v: number) => `₱${v.toLocaleString()}`} />
-                  <Bar dataKey="value" fill="#7c3aed" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Expiring Soon */}
-        {expiring.length > 0 && (
-          <Card className="border-orange-200">
-            <CardHeader><CardTitle className="text-base text-orange-700 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Contracts Expiring Soon</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              {expiring.map((c) => (
-                <button key={c.id} onClick={() => navigate(`/admin/contracts/${c.id}`)}
-                  className="w-full flex items-center justify-between border border-orange-200 bg-orange-50/50 rounded-lg p-3 hover:bg-orange-100/60 transition-colors text-left">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{c.contractNumber}</p>
-                    <p className="text-xs text-muted-foreground">{c.companyName} · {c.sellerName}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-orange-700">{getRemainingMonths(c.endDate)} months left</p>
-                    <p className="text-xs text-muted-foreground">Ends {c.endDate}</p>
-                  </div>
-                </button>
-              ))}
-            </CardContent>
-          </Card>
         )}
 
-        {/* Table with filters */}
+        {/* Partner list */}
         <Card>
-          <CardHeader className="space-y-3">
+          <CardHeader>
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <CardTitle className="text-base">All Contracts</CardTitle>
-              <Button size="sm" className="gap-2" onClick={() => navigate("/admin/onboarding")} data-testid="button-new-contract">
-                <Plus className="w-3.5 h-3.5" /> New Contract
-              </Button>
+              <CardTitle className="text-base">Trading Partners</CardTitle>
+              <div className="flex items-center gap-2">
+                <Button size="icon" variant="ghost" className="w-8 h-8" onClick={load} disabled={loading} title="Refresh">
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                </Button>
+                <Button size="sm" className="gap-2" onClick={openAdd} data-testid="button-add-partner">
+                  <Plus className="w-3.5 h-3.5" />Add Partner
+                </Button>
+              </div>
             </div>
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex flex-col sm:flex-row gap-2 mt-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input placeholder="Search by contract, company, seller..." value={search}
+                <Input placeholder="Search by company, ISA ID, city…" value={search}
                   onChange={(e) => setSearch(e.target.value)} className="pl-9 h-8 text-sm" />
               </div>
-              <Select value={statusFilter} onValueChange={setStatus}>
-                <SelectTrigger className="w-full sm:w-40 h-8 text-sm" data-testid="select-status-filter">
-                  <SelectValue placeholder="Status" />
+              <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <SelectTrigger className="w-full sm:w-48 h-8 text-sm">
+                  <SelectValue placeholder="All roles" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  {ALL_STATUSES.map((s) => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}
+                  <SelectItem value="all">All Roles</SelectItem>
+                  {EDI_ROLES.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full sm:w-36 h-8 text-sm" title="Start date from" />
-              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-                className="w-full sm:w-36 h-8 text-sm" title="End date to" />
             </div>
           </CardHeader>
+
           <CardContent>
-            {filtered.length === 0 ? (
+            {loading ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">Loading partners…</div>
+            ) : filtered.length === 0 ? (
               <div className="py-10 text-center">
-                <Handshake className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm font-medium text-foreground">No contracts match your filters</p>
-                <p className="text-xs text-muted-foreground mt-1">Try adjusting the search or filters.</p>
+                <Building2 className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm font-medium text-foreground">No partners match your filters</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {partners.length === 0 ? "Add your first trading partner to get started." : "Try adjusting the search or role filter."}
+                </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      {["Contract #", "Company", "Seller", "Value", "Progress", "Status", "Ends"].map((h) => (
-                        <th key={h} className="text-left py-2.5 px-3 text-xs font-semibold text-muted-foreground uppercase">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((c) => (
-                      <tr key={c.id}
-                        className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer"
-                        onClick={() => navigate(`/admin/contracts/${c.id}`)}
-                        data-testid={`row-contract-${c.id}`}>
-                        <td className="py-3 px-3 font-mono text-xs text-foreground">{c.contractNumber}</td>
-                        <td className="py-3 px-3 text-xs">{c.companyName}</td>
-                        <td className="py-3 px-3 text-xs text-muted-foreground">{c.sellerName}</td>
-                        <td className="py-3 px-3 font-semibold text-sm">₱{c.totalContractValue.toLocaleString()}</td>
-                        <td className="py-3 px-3 w-28">
-                          <Progress value={c.deliveryCompletionPercent} className="h-1.5" />
-                          <span className="text-xs text-muted-foreground">{c.deliveryCompletionPercent}%</span>
-                        </td>
-                        <td className="py-3 px-3">
-                          <Badge className={`text-xs border capitalize ${statusColor[c.status]}`}>{c.status}</Badge>
-                        </td>
-                        <td className="py-3 px-3 text-xs text-muted-foreground">{c.endDate}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                {filtered.map((p) => {
+                  const meta = ROLE_META[p.edi_role];
+                  return (
+                    <div key={p.id} className="border border-border rounded-xl p-4" data-testid={`card-partner-${p.id}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center shrink-0">
+                            <Building2 className="w-5 h-5 text-primary" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-bold text-foreground">{p.company_name}</p>
+                              <Badge className={`text-xs border ${meta.color}`}>{meta.label}</Badge>
+                              <Badge variant="secondary" className="text-xs font-mono">{p.isa_receiver_id.trim()}</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {[p.address_line_1, p.city, p.postal_code, p.country].filter(Boolean).join(", ")}
+                            </p>
+                            <div className="mt-2 flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground w-16 shrink-0">Endpoint</span>
+                                <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono truncate max-w-xs">{p.api_endpoint}</code>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground w-16 shrink-0">Token</span>
+                                <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono truncate max-w-xs">{displayToken(p)}</code>
+                                <button
+                                  className="text-muted-foreground hover:text-foreground transition-colors"
+                                  onClick={() => setRevealedId(revealedId === p.id ? null : p.id)}
+                                  title={revealedId === p.id ? "Hide token" : "Show token"}
+                                >
+                                  {revealedId === p.id ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                </button>
+                                <button
+                                  className="text-muted-foreground hover:text-foreground transition-colors"
+                                  onClick={() => copyToken(p)}
+                                  title="Copy token"
+                                >
+                                  {copiedId === p.id ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
+                              {p.po_number_format && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-muted-foreground w-16 shrink-0">PO Format</span>
+                                  <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">{p.po_number_format}</code>
+                                  <span className="text-xs text-muted-foreground">{p.default_currency}</span>
+                                </div>
+                              )}
+                              {p.created_at && (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-muted-foreground w-16 shrink-0">Since</span>
+                                  <span className="text-xs text-muted-foreground">{p.created_at.slice(0, 10)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button size="icon" variant="ghost" className="w-8 h-8" onClick={() => openEdit(p)} data-testid={`button-edit-partner-${p.id}`}>
+                            <Edit className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="w-8 h-8 text-destructive hover:text-destructive" onClick={() => handleDelete(p)} data-testid={`button-delete-partner-${p.id}`}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Add / Edit dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editTarget ? "Edit Trading Partner" : "Add Trading Partner"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-1">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Company Name <span className="text-destructive">*</span></Label>
+                <Input className="mt-1" placeholder="Puregold Price Club Inc." value={form.company_name} onChange={(e) => field("company_name", e.target.value)} data-testid="input-company-name" />
+              </div>
+              <div>
+                <Label>Label (short)</Label>
+                <Input className="mt-1" placeholder="Defaults to company name" value={form.label} onChange={(e) => field("label", e.target.value)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>ISA Receiver ID <span className="text-destructive">*</span></Label>
+                <Input className="mt-1 font-mono text-xs" placeholder="SERMACROPS" maxLength={15} value={form.isa_receiver_id} onChange={(e) => field("isa_receiver_id", e.target.value)} data-testid="input-isa-receiver-id" />
+              </div>
+              <div>
+                <Label>EDI Role <span className="text-destructive">*</span></Label>
+                <Select value={form.edi_role} onValueChange={(v) => field("edi_role", v as TradingPartner["edi_role"])}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>{EDI_ROLES.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label>Address Line 1 <span className="text-destructive">*</span></Label>
+              <Input className="mt-1" placeholder="900 Romualdez St., Paco" value={form.address_line_1} onChange={(e) => field("address_line_1", e.target.value)} />
+            </div>
+            <div>
+              <Label>Address Line 2</Label>
+              <Input className="mt-1" placeholder="Suite / Unit (optional)" value={form.address_line_2} onChange={(e) => field("address_line_2", e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>City <span className="text-destructive">*</span></Label>
+                <Input className="mt-1" placeholder="Manila" value={form.city} onChange={(e) => field("city", e.target.value)} />
+              </div>
+              <div>
+                <Label>State / Province</Label>
+                <Input className="mt-1" placeholder="SC" maxLength={3} value={form.state} onChange={(e) => field("state", e.target.value)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Postal Code <span className="text-destructive">*</span></Label>
+                <Input className="mt-1" placeholder="1007" value={form.postal_code} onChange={(e) => field("postal_code", e.target.value)} />
+              </div>
+              <div>
+                <Label>Country <span className="text-destructive">*</span></Label>
+                <Input className="mt-1" placeholder="PH" maxLength={2} value={form.country} onChange={(e) => field("country", e.target.value.toUpperCase())} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>PO Number Format <span className="text-destructive">*</span></Label>
+                <Input className="mt-1 font-mono text-xs" placeholder="PO-{number}" value={form.po_number_format} onChange={(e) => field("po_number_format", e.target.value)} />
+              </div>
+              <div>
+                <Label>Currency <span className="text-destructive">*</span></Label>
+                <Input className="mt-1 font-mono text-xs" placeholder="PHP" maxLength={3} value={form.default_currency} onChange={(e) => field("default_currency", e.target.value.toUpperCase())} />
+              </div>
+            </div>
+            <div>
+              <Label>EDI Endpoint URL <span className="text-destructive">*</span></Label>
+              <Input className="mt-1 font-mono text-xs" placeholder="https://edi.company.com/receive" value={form.api_endpoint} onChange={(e) => field("api_endpoint", e.target.value)} />
+            </div>
+            <div>
+              <Label>Auth Token {!editTarget && <span className="text-destructive">*</span>}</Label>
+              <Input className="mt-1 font-mono text-xs" placeholder={editTarget ? "Leave blank to keep current token" : "Paste token here"} value={form.auth_token} onChange={(e) => field("auth_token", e.target.value)} />
+            </div>
+            <Button className="w-full" onClick={handleSave} disabled={saving} data-testid="button-save-partner">
+              {saving ? "Saving…" : editTarget ? "Update Partner" : "Add Partner"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

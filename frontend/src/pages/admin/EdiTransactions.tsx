@@ -43,6 +43,7 @@ interface Thread {
   docs204: EdiDoc[];
   docs990: EdiDoc[];
   docs856: EdiDoc[];
+  docs861: EdiDoc[];
   docs810: EdiDoc[];
 }
 
@@ -55,9 +56,11 @@ interface ThreadState {
 }
 
 const typeColors: Record<string, string> = {
+  "846": "bg-cyan-50 text-cyan-700 border-cyan-200",
   "850": "bg-blue-50 text-blue-700 border-blue-200",
   "855": "bg-green-50 text-green-700 border-green-200",
   "856": "bg-purple-50 text-purple-700 border-purple-200",
+  "861": "bg-rose-50 text-rose-700 border-rose-200",
   "810": "bg-amber-50 text-amber-700 border-amber-200",
   "997": "bg-emerald-50 text-emerald-700 border-emerald-200",
   "204": "bg-orange-50 text-orange-700 border-orange-200",
@@ -409,6 +412,238 @@ function PurchaseOrderView({ doc }: { doc: EdiDoc }) {
   );
 }
 
+// ── 861 Print & Visual View ─────────────────────────────────────────────────
+
+function printReceivingAdviceWindow(doc: EdiDoc) {
+  const d      = doc.parsedData ?? {};
+  const raNum  = (d.ra_number as string | undefined) ?? doc.isaControl;
+  const poNum  = (d.po_number as string | undefined) ?? extractPoFromX12(doc.raw) ?? "—";
+  const raDate = (d.ra_date   as string | undefined) ?? doc.date;
+  const lines  = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
+  const buyer  = (d.buyer_id  as string | undefined) ?? doc.company;
+  const vendor = (d.vendor_id as string | undefined) ?? "PhilHarvest";
+
+  const lineRows = lines.map((li) => `<tr>
+    <td>${String(li.line_number ?? "")}</td>
+    <td style="font-family:monospace">${String(li.part_number ?? "—")}</td>
+    <td style="text-align:right">${Number(li.qty_received ?? 0).toLocaleString()}</td>
+    <td>${String(li.uom ?? "EA")}</td>
+  </tr>`).join("");
+
+  const html = `<!DOCTYPE html><html><head><title>RA ${raNum}</title>
+<style>
+  body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:40px}
+  .hdr{display:flex;justify-content:space-between;margin-bottom:24px}
+  .brand{font-size:18px;font-weight:bold;color:#16a34a}
+  h1{font-size:22px;margin:0}
+  .mono{font-family:monospace;font-weight:bold;font-size:13px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;border:1px solid #ddd;padding:12px;margin-bottom:16px;border-radius:6px}
+  .lbl{font-size:10px;font-weight:bold;text-transform:uppercase;color:#888;margin-bottom:4px}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px}
+  th{background:#f5f5f5;text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;color:#666;border-bottom:1px solid #ddd}
+  td{padding:8px 10px;border-bottom:1px solid #eee;font-size:11px}
+  .ftr{display:flex;justify-content:space-between;border-top:1px solid #ddd;padding-top:12px;font-size:10px;color:#888}
+  @media print{body{margin:20px}}
+</style></head><body>
+<div class="hdr">
+  <div>
+    <div class="brand">PhilHarvest</div>
+    <div style="font-size:10px;color:#888">Agricultural Marketplace</div>
+    <div style="font-size:10px;color:#888">458 Mabini St., Brgy. Santo Nino</div>
+    <div style="font-size:10px;color:#888">General Santos City, SC 9500, PH</div>
+  </div>
+  <div style="text-align:right">
+    <h1>RECEIVING ADVICE</h1>
+    <div class="mono">RA# ${raNum}</div>
+    <div style="color:#888;font-size:10px">PO Reference: ${poNum}</div>
+    <div style="color:#888;font-size:10px">Date: ${raDate}</div>
+    <div style="color:#888;font-size:10px">ISA Control: ${doc.isaControl}</div>
+  </div>
+</div>
+<div class="grid">
+  <div><div class="lbl">Received By (Buyer)</div><strong>${buyer}</strong></div>
+  <div><div class="lbl">Supplier (Vendor)</div><strong>${vendor}</strong></div>
+</div>
+<table>
+  <thead><tr><th>#</th><th>Part / SKU</th><th style="text-align:right">Qty Received</th><th>UOM</th></tr></thead>
+  <tbody>${lineRows || '<tr><td colspan="4" style="text-align:center;color:#888">No line items</td></tr>'}</tbody>
+</table>
+<div class="ftr">
+  <div><strong>Total lines:</strong> ${lines.length}</div>
+  <div style="text-align:right"><div>Received via EDI X12 861</div><div>${doc.date}</div></div>
+</div>
+</body></html>`;
+
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 250);
+}
+
+function ReceivingAdviceView({ doc }: { doc: EdiDoc }) {
+  const d     = doc.parsedData ?? {};
+  const raNum = (d.ra_number as string | undefined) ?? doc.isaControl;
+  const poNum = (d.po_number as string | undefined) ?? extractPoFromX12(doc.raw) ?? "—";
+  const raDate = (d.ra_date  as string | undefined) ?? doc.date;
+  const lines = (d.line_items as Array<Record<string, unknown>> | undefined) ?? [];
+  const buyer = (d.buyer_id  as string | undefined) ?? doc.company;
+  const vendor = (d.vendor_id as string | undefined) ?? "PhilHarvest";
+
+  return (
+    <div className="space-y-4 text-sm">
+      <div className="flex justify-between items-start">
+        <div>
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <Leaf className="w-4 h-4 text-primary" />
+            <span className="font-bold text-base text-primary">PhilHarvest</span>
+          </div>
+          <p className="text-xs text-muted-foreground">Agricultural Marketplace</p>
+          <p className="text-xs text-muted-foreground">458 Mabini St., Brgy. Santo Nino</p>
+          <p className="text-xs text-muted-foreground">General Santos City, SC 9500, PH</p>
+        </div>
+        <div className="text-right">
+          <h2 className="text-xl font-bold text-foreground tracking-tight">RECEIVING ADVICE</h2>
+          <p className="font-mono font-semibold text-sm text-foreground">RA# {raNum}</p>
+          <p className="text-xs text-muted-foreground">PO Reference: {poNum}</p>
+          <p className="text-xs text-muted-foreground">Date: {raDate}</p>
+          <p className="text-xs text-muted-foreground">ISA Control: {doc.isaControl}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 border border-border rounded-lg p-3">
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Received By (Buyer)</p>
+          <p className="font-semibold text-foreground">{buyer}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Supplier (Vendor)</p>
+          <p className="font-semibold text-foreground">{vendor}</p>
+        </div>
+      </div>
+
+      <div className="border border-border rounded-lg overflow-hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-muted">
+            <tr>
+              {["#", "Part / SKU", "Qty Received", "UOM"].map((h, i) => (
+                <th key={h} className={`px-3 py-2 font-semibold text-muted-foreground uppercase ${i >= 2 ? "text-right" : "text-left"}`}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {lines.length > 0 ? lines.map((li, i) => (
+              <tr key={i} className="hover:bg-muted/30">
+                <td className="px-3 py-2 text-muted-foreground">{String(li.line_number ?? i + 1)}</td>
+                <td className="px-3 py-2 font-mono">{String(li.part_number ?? "—")}</td>
+                <td className="px-3 py-2 text-right">{Number(li.qty_received ?? 0).toLocaleString()}</td>
+                <td className="px-3 py-2">{String(li.uom ?? "EA")}</td>
+              </tr>
+            )) : (
+              <tr><td colSpan={4} className="px-3 py-6 text-center text-muted-foreground italic">No line items</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex justify-between text-xs text-muted-foreground border-t border-border pt-3">
+        <p><span className="font-medium text-foreground">Total lines:</span> {lines.length}</p>
+        <div className="text-right">
+          <p className="font-medium text-foreground">Received via EDI X12 861</p>
+          <p>{doc.date}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 990 Load Tender Response View ───────────────────────────────────────────
+
+function LoadTenderResponseView({ doc }: { doc: EdiDoc }) {
+  const d            = doc.parsedData ?? {};
+  const responseCode = (d.response_code as string | undefined) ?? 'UN';
+  const isAccepted   = ['A', 'AA'].includes(responseCode);
+  const isDeclined   = ['D', 'RE'].includes(responseCode);
+  const carrierName  = (d.carrier_name  as string | undefined) ?? doc.company;
+  const carrierId    = (d.carrier_id    as string | undefined) ?? '—';
+  const loadTenderId = (d.load_tender_id as string | undefined) ?? extractPoFromX12(doc.raw) ?? '—';
+  const pickupDate   = (d.estimated_pickup_date   as string | undefined);
+  const deliveryDate = (d.estimated_delivery_date as string | undefined);
+  const rejectionReason = (d.rejection_reason as string | undefined);
+
+  const bannerCls = isAccepted
+    ? "bg-green-50 border-green-300 text-green-800"
+    : isDeclined
+    ? "bg-red-50 border-red-300 text-red-800"
+    : "bg-muted border-border text-muted-foreground";
+
+  const responseLabel = isAccepted ? "Accepted" : isDeclined ? "Declined" : `Unknown (${responseCode})`;
+
+  return (
+    <div className="space-y-4 text-sm">
+      {/* Letterhead */}
+      <div className="flex justify-between items-start">
+        <div>
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <Leaf className="w-4 h-4 text-primary" />
+            <span className="font-bold text-base text-primary">PhilHarvest</span>
+          </div>
+          <p className="text-xs text-muted-foreground">Agricultural Marketplace</p>
+        </div>
+        <div className="text-right">
+          <h2 className="text-xl font-bold text-foreground tracking-tight">LOAD TENDER RESPONSE</h2>
+          <p className="text-xs text-muted-foreground">ISA Control: {doc.isaControl}</p>
+          <p className="text-xs text-muted-foreground">Received: {doc.date}</p>
+        </div>
+      </div>
+
+      {/* Response banner */}
+      <div className={`flex items-center gap-3 border rounded-lg px-4 py-3 ${bannerCls}`}>
+        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${isAccepted ? "bg-green-500" : isDeclined ? "bg-red-500" : "bg-muted-foreground"}`} />
+        <div>
+          <p className="font-bold text-base">{responseLabel}</p>
+          {rejectionReason && <p className="text-xs mt-0.5">{rejectionReason}</p>}
+        </div>
+        <span className="ml-auto font-mono text-xs font-bold opacity-60">{responseCode}</span>
+      </div>
+
+      {/* Carrier + reference info */}
+      <div className="grid grid-cols-2 gap-4 border border-border rounded-lg p-3">
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Carrier</p>
+          <p className="font-semibold text-foreground">{carrierName}</p>
+          <p className="text-xs text-muted-foreground font-mono">{carrierId}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Load Tender Reference</p>
+          <p className="font-semibold text-foreground font-mono">{loadTenderId}</p>
+        </div>
+        {pickupDate && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Est. Pickup Date</p>
+            <p className="font-semibold text-foreground">{pickupDate}</p>
+          </div>
+        )}
+        {deliveryDate && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Est. Delivery Date</p>
+            <p className="font-semibold text-foreground">{deliveryDate}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end text-xs text-muted-foreground border-t border-border pt-3">
+        <div className="text-right">
+          <p className="font-medium text-foreground">Received via EDI X12 990</p>
+          <p>{doc.date}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Thread building ──────────────────────────────────────────────────────────
 
 // Extracts the PO number from a raw X12 payload.
@@ -428,6 +663,12 @@ function extractPoFromX12(raw: string | undefined): string | undefined {
   if (match?.[1]?.trim()) return match[1].trim();
   // 204: L11*{PO}*PO (L11-01)
   match = raw.match(/L11\*([^*~\r\n]+)/);
+  if (match?.[1]?.trim()) return match[1].trim();
+  // 861: BRA*{ra_num}*{PO} (BRA02)
+  match = raw.match(/BRA\*[^*]*\*([^*~\r\n]+)/);
+  if (match?.[1]?.trim()) return match[1].trim();
+  // 990: B1*{carrier}*{reference}*{code} — B1-02 is the load tender / PO reference
+  match = raw.match(/B1\*[^*]*\*([^*~\r\n]+)/);
   if (match?.[1]?.trim()) return match[1].trim();
   return undefined;
 }
@@ -464,10 +705,6 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
       };
     }
 
-    function byPartner(type: string) {
-      return (d: EdiDoc) => !used.has(d.id) && d.type === type && d.partnerId === po.partnerId;
-    }
-
     function take(filter: (d: EdiDoc) => boolean): EdiDoc[] {
       const found = docs.filter(filter);
       found.forEach((d) => used.add(d.id));
@@ -478,9 +715,10 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
       po,
       docs855: take(byRelated("855")),
       docs856: take(byRelated("856")),
+      docs861: take(byRelated("861")),
       docs810: take(byRelated("810")),
       docs204: take(byPoOnly("204")),
-      docs990: take(byPartner("990")),
+      docs990: take(byPoOnly("990")),
     };
   });
 
@@ -667,6 +905,11 @@ function ThreadRow({
             locked={state.isRejected}
           />
           <DocStep
+            docType="861" label="Receiving Advice"
+            docs={thread.docs861} canSend={false}
+            onView={onView} locked={state.isRejected} inbound
+          />
+          <DocStep
             docType="810" label="Invoice"
             docs={thread.docs810} canSend={state.can810}
             onSend={() => actions.send810(po)} onView={onView}
@@ -714,10 +957,6 @@ export default function EdiTransactions() {
   }, [toast]);
 
   useEffect(() => { loadDocs(); }, [loadDocs]);
-  useEffect(() => {
-    const id = window.setInterval(loadDocs, 10_000);
-    return () => window.clearInterval(id);
-  }, [loadDocs]);
 
   async function handleRetry(doc: EdiDoc) {
     setRetrying(doc.backendId);
@@ -735,7 +974,7 @@ export default function EdiTransactions() {
   async function handleDeleteThread(thread: Thread) {
     if (!window.confirm(`Delete this 850 thread (${(thread.po.parsedData?.po_number as string | undefined) ?? thread.po.id}) and all its related documents? This cannot be undone.`)) return;
     setDeletingThread(thread.po.id);
-    const allDocs = [thread.po, ...thread.docs855, ...thread.docs204, ...thread.docs990, ...thread.docs856, ...thread.docs810];
+    const allDocs = [thread.po, ...thread.docs855, ...thread.docs204, ...thread.docs990, ...thread.docs856, ...thread.docs861, ...thread.docs810];
     try {
       await Promise.all(allDocs.map((d) => deleteTransaction(d.backendId)));
       toast({ title: "Thread deleted", description: `PO thread and ${allDocs.length} document(s) removed.` });
@@ -800,7 +1039,7 @@ export default function EdiTransactions() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          {filteredThreads.length} purchase order{filteredThreads.length !== 1 ? "s" : ""} · auto-refreshes every 10s
+          {filteredThreads.length} purchase order{filteredThreads.length !== 1 ? "s" : ""} · use the refresh button to reload
         </p>
 
         {/* Threads */}
@@ -868,7 +1107,7 @@ export default function EdiTransactions() {
 
         {/* Detail dialog */}
         <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-          <DialogContent className={selected?.type === "850" ? "max-w-3xl" : "max-w-2xl"}>
+          <DialogContent className={selected?.type === "850" || selected?.type === "861" || selected?.type === "990" ? "max-w-3xl" : "max-w-2xl"}>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 {selected?.id}
@@ -894,6 +1133,43 @@ export default function EdiTransactions() {
                       <Button size="sm" className="gap-1.5" onClick={() => printPOWindow(selected)} data-testid="button-print-po">
                         <Printer className="w-3.5 h-3.5" />Print PO
                       </Button>
+                      <Button size="sm" variant="outline" className="gap-1.5" disabled={!selected.raw} onClick={() => downloadRaw(selected)} data-testid="button-download-doc">
+                        <Download className="w-3.5 h-3.5" />Download EDI
+                      </Button>
+                    </div>
+                  </>
+                ) : selected.type === "861" ? (
+                  <>
+                    <ReceivingAdviceView doc={selected} />
+                    {selected.raw && (
+                      <details className="group">
+                        <summary className="text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                          Show raw EDI payload
+                        </summary>
+                        <pre className="mt-2 bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-40">{selected.raw}</pre>
+                      </details>
+                    )}
+                    <div className="flex gap-2 flex-wrap pt-1 border-t border-border">
+                      <Button size="sm" className="gap-1.5" onClick={() => printReceivingAdviceWindow(selected)} data-testid="button-print-ra">
+                        <Printer className="w-3.5 h-3.5" />Print RA
+                      </Button>
+                      <Button size="sm" variant="outline" className="gap-1.5" disabled={!selected.raw} onClick={() => downloadRaw(selected)} data-testid="button-download-doc">
+                        <Download className="w-3.5 h-3.5" />Download EDI
+                      </Button>
+                    </div>
+                  </>
+                ) : selected.type === "990" ? (
+                  <>
+                    <LoadTenderResponseView doc={selected} />
+                    {selected.raw && (
+                      <details className="group">
+                        <summary className="text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
+                          Show raw EDI payload
+                        </summary>
+                        <pre className="mt-2 bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-40">{selected.raw}</pre>
+                      </details>
+                    )}
+                    <div className="flex gap-2 flex-wrap pt-1 border-t border-border">
                       <Button size="sm" variant="outline" className="gap-1.5" disabled={!selected.raw} onClick={() => downloadRaw(selected)} data-testid="button-download-doc">
                         <Download className="w-3.5 h-3.5" />Download EDI
                       </Button>

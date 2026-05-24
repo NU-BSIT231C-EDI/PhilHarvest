@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { Package, ShoppingBag, Heart, Bell, ShoppingCart, ArrowRight, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,19 +7,48 @@ import DashboardLayout from "@/layouts/DashboardLayout";
 import StatsCard from "@/components/shared/StatsCard";
 import StatusBadge from "@/components/shared/StatusBadge";
 import ProductCard from "@/components/shared/ProductCard";
-import { orders, products, notifications } from "@/data/mockData";
+import { orders, notifications } from "@/data/mockData";
 import { useCart } from "@/contexts/CartContext";
 import { useWishlist } from "@/contexts/WishlistContext";
 import { useToast } from "@/hooks/use-toast";
+import { fetchProducts, type ApiProduct } from "@/services/productsApi";
+import type { Product } from "@/types";
 
 const myOrders = orders.filter((o) => o.customerId === "u1").slice(0, 4);
-const recommended = products.filter((p) => p.featured).slice(0, 4);
 const unread = notifications.filter((n) => !n.read).length;
 
+function apiToProduct(p: ApiProduct): Product {
+  return {
+    id: String(p.id),
+    name: p.name,
+    category: p.category ?? "other",
+    description: p.description ?? "",
+    price: parseFloat(p.unit_price),
+    unit: p.unit_of_measure,
+    stock: p.stock_quantity,
+    sellerId: p.seller_name ?? "unknown",
+    sellerName: p.seller_name ?? "Unknown Seller",
+    sellerRegion: "Philippines",
+    images: p.image_url ? [p.image_url] : [],
+    rating: 0,
+    reviewCount: 0,
+    status: p.is_active ? "active" : "inactive",
+    featured: false,
+    createdAt: p.created_at,
+  };
+}
+
 export default function CustomerDashboard() {
+  const [recommended, setRecommended] = useState<Product[]>([]);
   const { addToCart, cartCount } = useCart();
   const { addToWishlist, removeFromWishlist, isInWishlist, wishlistCount } = useWishlist();
   const { toast } = useToast();
+
+  useEffect(() => {
+    fetchProducts({ active: true, per_page: 4 })
+      .then((page) => setRecommended(page.data.map(apiToProduct)))
+      .catch(() => {});
+  }, []);
 
   function handleAddToCart(product: Parameters<typeof addToCart>[0]) {
     addToCart(product);

@@ -51,6 +51,7 @@ class InboundX12Controller
         $type = $this->detectTransactionType($rawEdi);
 
         return match ($type) {
+            '861'   => $this->receive861($request),
             '990'   => $this->receive990($request),
             default => $this->receive850($request),
         };
@@ -328,8 +329,154 @@ class InboundX12Controller
     }
 
     /**
+     * Receive EDI 861 (Receiving Advice / Acceptance Certificate)
+     * POST /api/edi/861/receive
+     *
+     * Sent by the manufacturer/buyer to confirm goods have been received.
+     * Parsed inline — no separate DTO/parser needed.
+     */
+    public function receive861(Request $request)
+    {
+        try {
+            $rawEdi = $request->getContent();
+
+            if (empty($rawEdi)) {
+                return response()->json([
+                    'error'   => 'Empty payload',
+                    'message' => 'Request body must contain raw X12 EDI string',
+                ], Response::HTTP_BAD_REQUEST);
+            }
+
+            if (!$this->isValidX12($rawEdi)) {
+                return response()->json([
+                    'error'   => 'Invalid X12 format',
+                    'message' => 'Payload does not appear to be valid X12 EDI',
+                ], Response::HTTP_BAD_REQUEST);
+            }
+
+            $controlNumber = $this->extractIsaField($rawEdi, 13);
+            $partnerId     = $this->extractIsaField($rawEdi, 6);
+            $parsedData    = $this->parse861($rawEdi);
+
+            $existing = EdiTransaction::where('control_number', $controlNumber)->first();
+            if ($existing) {
+                return $this->alreadyHandledResponse($existing->id, $existing->control_number, $parsedData['po_number'] ?? null);
+            }
+
+            try {
+                $transaction = EdiTransaction::create([
+                    'transaction_type' => '861',
+                    'control_number'   => $controlNumber,
+                    'partner_id'       => $partnerId,
+                    'raw_payload'      => $rawEdi,
+                    'parsed_data'      => $parsedData,
+                    'status'           => 'VALIDATED',
+                ]);
+            } catch (QueryException $e) {
+                if ($this->isAlreadyHandledException($e)) {
+                    $existing = EdiTransaction::where('control_number', $controlNumber)->first();
+                    return $this->alreadyHandledResponse($existing?->id, $controlNumber, $parsedData['po_number'] ?? null);
+                }
+                throw $e;
+            }
+
+            Log::info('EDI 861 received', [
+                'transaction_id' => $transaction->id,
+                'control_number' => $controlNumber,
+                'po_number'      => $parsedData['po_number'] ?? null,
+                'ra_number'      => $parsedData['ra_number'] ?? null,
+                'partner_id'     => $partnerId,
+            ]);
+
+            return response()->json([
+                'success'        => true,
+                'message'        => 'EDI 861 received and stored',
+                'transaction_id' => $transaction->id,
+                'control_number' => $transaction->control_number,
+                'po_number'      => $parsedData['po_number'] ?? null,
+                'ra_number'      => $parsedData['ra_number'] ?? null,
+            ], Response::HTTP_ACCEPTED);
+
+        } catch (\Exception $e) {
+            Log::error('Unexpected error processing EDI 861', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'error'   => 'Internal server error',
+                'message' => 'An unexpected error occurred processing the EDI document',
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Parse an EDI 861 Receiving Advice into a structured array.
+     *
+     * Extracts BRA (header), RCD (line items), and N1 name loops.
+     */
+    private function parse861(string $rawEdi): array
+    {
+        $data = [
+            'ra_number'  => null,
+            'po_number'  => null,
+            'ra_date'    => null,
+            'vendor_id'  => null,
+            'buyer_id'   => null,
+            'line_items' => [],
+        ];
+
+        $segments   = explode('~', $rawEdi);
+        $currentN1  = null;
+
+        foreach ($segments as $segment) {
+            $fields = explode('*', trim($segment));
+            $id     = $fields[0] ?? '';
+
+            if ($id === 'BRA') {
+                $data['ra_number'] = trim($fields[1] ?? '');
+                $data['po_number'] = trim($fields[2] ?? '');
+                $data['ra_date']   = trim($fields[3] ?? '');
+            }
+
+            if ($id === 'N1') {
+                $currentN1 = trim($fields[1] ?? '');
+                $name      = trim($fields[2] ?? '');
+                if ($currentN1 === 'VN') $data['vendor_id'] = $name;
+                if ($currentN1 === 'BY') $data['buyer_id']  = $name;
+            }
+
+            // RCD*{line}*{qty}*{uom}*{condition}*{qualifier}*{part_number}
+            if ($id === 'RCD') {
+                $data['line_items'][] = [
+                    'line_number'  => trim($fields[1] ?? ''),
+                    'qty_received' => (int) ($fields[2] ?? 0),
+                    'uom'          => trim($fields[3] ?? 'EA'),
+                    'part_number'  => trim($fields[6] ?? ''),
+                ];
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Extract a field value from the ISA segment by 1-based field index.
+     */
+    private function extractIsaField(string $rawEdi, int $index): string
+    {
+        foreach (explode('~', $rawEdi) as $segment) {
+            $fields = explode('*', trim($segment));
+            if (($fields[0] ?? '') === 'ISA' && isset($fields[$index])) {
+                return trim($fields[$index]);
+            }
+        }
+        return 'UNKNOWN';
+    }
+
+    /**
      * Validate X12 format
-     * 
+     *
      * X12 documents should start with ISA segment and end with tilde
      */
     private function isValidX12(string $payload): bool

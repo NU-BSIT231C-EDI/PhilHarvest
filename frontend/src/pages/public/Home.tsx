@@ -1,14 +1,35 @@
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "wouter";
 import { ArrowRight, Leaf, Shield, Truck, Star, Users, Package, ChevronRight, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import PublicLayout from "@/layouts/PublicLayout";
 import ProductCard from "@/components/shared/ProductCard";
-import { products, categories } from "@/data/mockData";
 import { useCart } from "@/contexts/CartContext";
 import { useToast } from "@/hooks/use-toast";
+import { fetchProducts, type ApiProduct } from "@/services/productsApi";
+import type { Product } from "@/types";
 
-const featuredProducts = products.filter((p) => p.featured).slice(0, 8);
+function apiToProduct(p: ApiProduct): Product {
+  return {
+    id: String(p.id),
+    name: p.name,
+    category: p.category ?? "other",
+    description: p.description ?? "",
+    price: parseFloat(p.unit_price),
+    unit: p.unit_of_measure,
+    stock: p.stock_quantity,
+    sellerId: p.seller_name ?? "unknown",
+    sellerName: p.seller_name ?? "Unknown Seller",
+    sellerRegion: "Philippines",
+    images: p.image_url ? [p.image_url] : [],
+    rating: 0,
+    reviewCount: 0,
+    status: p.is_active ? "active" : "inactive",
+    featured: false,
+    createdAt: p.created_at,
+  };
+}
 
 const categoryIcons: Record<string, string> = {
   vegetables: "🥬",
@@ -25,8 +46,27 @@ const testimonials = [
 ];
 
 export default function Home() {
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
   const { addToCart } = useCart();
   const { toast } = useToast();
+
+  useEffect(() => {
+    fetchProducts({ active: true, per_page: 100 })
+      .then((page) => setAllProducts(page.data.map(apiToProduct)))
+      .catch(() => {});
+  }, []);
+
+  const featuredProducts = allProducts.slice(0, 8);
+
+  const categories = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of allProducts) map.set(p.category, (map.get(p.category) ?? 0) + 1);
+    return Array.from(map.entries()).map(([id, productCount]) => ({
+      id,
+      name: id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, " "),
+      productCount,
+    }));
+  }, [allProducts]);
 
   function handleAddToCart(product: Parameters<typeof addToCart>[0]) {
     addToCart(product);

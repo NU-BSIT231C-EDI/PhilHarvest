@@ -1,17 +1,20 @@
 import { useState, useEffect } from "react";
-import { AlertTriangle, Save } from "lucide-react";
+import { AlertTriangle, Save, PackagePlus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import { useToast } from "@/hooks/use-toast";
 import { fetchProducts, updateProduct, type ApiProduct } from "@/services/productsApi";
+import { send846 } from "@/services/ediApi";
 
 export default function Inventory() {
   const [products, setProducts] = useState<ApiProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [stocks, setStocks] = useState<Record<number, number>>({});
+  const [addQty, setAddQty] = useState<Record<number, number>>({});
   const [saving, setSaving] = useState<Record<number, boolean>>({});
+  const [adding, setAdding] = useState<Record<number, boolean>>({});
   const { toast } = useToast();
 
   async function load() {
@@ -20,6 +23,7 @@ export default function Inventory() {
       const page = await fetchProducts();
       setProducts(page.data);
       setStocks(Object.fromEntries(page.data.map((p) => [p.id, p.stock_quantity])));
+      setAddQty(Object.fromEntries(page.data.map((p) => [p.id, 0])));
     } catch (e) {
       toast({ title: "Error loading inventory", description: String(e), variant: "destructive" });
     } finally {
@@ -38,6 +42,41 @@ export default function Inventory() {
       toast({ title: "Update failed", description: String(e), variant: "destructive" });
     } finally {
       setSaving((prev) => ({ ...prev, [p.id]: false }));
+    }
+  }
+
+  async function addStocks(p: ApiProduct) {
+    const delta = addQty[p.id] ?? 0;
+    if (delta <= 0) {
+      toast({ title: "Invalid quantity", description: "Enter a number greater than 0.", variant: "destructive" });
+      return;
+    }
+    setAdding((prev) => ({ ...prev, [p.id]: true }));
+    const newQty = (stocks[p.id] ?? p.stock_quantity) + delta;
+    try {
+      await updateProduct(p.id, { stock_quantity: newQty });
+      setStocks((prev) => ({ ...prev, [p.id]: newQty }));
+      setAddQty((prev) => ({ ...prev, [p.id]: 0 }));
+
+      // Send EDI 846 to SERMACROPS with updated stock level
+      const today = new Date().toISOString().slice(0, 10);
+      await send846({
+        reference_number: `INVEN-${today}-${p.id}`,
+        items: [{
+          sku:      p.sku,
+          quantity: newQty,
+          uom:      p.unit_of_measure ?? 'EA',
+        }],
+      });
+
+      toast({
+        title: "Stocks added",
+        description: `${p.name} updated to ${newQty} ${p.unit_of_measure}. EDI 846 sent to SERMACROPS.`,
+      });
+    } catch (e) {
+      toast({ title: "Add stocks failed", description: String(e), variant: "destructive" });
+    } finally {
+      setAdding((prev) => ({ ...prev, [p.id]: false }));
     }
   }
 
@@ -76,7 +115,8 @@ export default function Inventory() {
                     <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Category</th>
                     <th className="text-right px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Current Stock</th>
                     <th className="text-left px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Stock Level</th>
-                    <th className="text-right px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Update</th>
+                    <th className="text-right px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Set Stock</th>
+                    <th className="text-right px-4 py-3 text-xs text-muted-foreground font-semibold uppercase tracking-wide">Add Stocks</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -92,7 +132,10 @@ export default function Inventory() {
                               alt={p.name}
                               className="w-9 h-9 rounded-lg object-cover"
                             />
-                            <p className="font-semibold">{p.name}</p>
+                            <div>
+                              <p className="font-semibold">{p.name}</p>
+                              <p className="text-xs text-muted-foreground font-mono">{p.sku}</p>
+                            </div>
                           </div>
                         </td>
                         <td className="px-4 py-3 capitalize text-muted-foreground">
@@ -104,12 +147,15 @@ export default function Inventory() {
                             {level === "high" ? "In Stock" : level === "medium" ? "Medium" : "Low Stock"}
                           </Badge>
                         </td>
+
+                        {/* Set absolute stock */}
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2 justify-end">
                             <Input
                               type="number"
                               className="w-24 h-8 text-sm"
                               value={stock}
+                              min={0}
                               onChange={(e) => setStocks((prev) => ({ ...prev, [p.id]: parseInt(e.target.value) || 0 }))}
                               data-testid={`input-stock-${p.id}`}
                             />
@@ -122,6 +168,32 @@ export default function Inventory() {
                               data-testid={`button-save-stock-${p.id}`}
                             >
                               <Save className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+
+                        {/* Add stocks delta — saves + sends 846 */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 justify-end">
+                            <Input
+                              type="number"
+                              className="w-24 h-8 text-sm"
+                              value={addQty[p.id] ?? 0}
+                              min={0}
+                              placeholder="+ qty"
+                              onChange={(e) => setAddQty((prev) => ({ ...prev, [p.id]: parseInt(e.target.value) || 0 }))}
+                              data-testid={`input-addqty-${p.id}`}
+                            />
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5 h-8 border-cyan-300 text-cyan-700 hover:bg-cyan-50 whitespace-nowrap"
+                              disabled={adding[p.id] || (addQty[p.id] ?? 0) <= 0}
+                              onClick={() => addStocks(p)}
+                              data-testid={`button-add-stocks-${p.id}`}
+                            >
+                              <PackagePlus className="w-3.5 h-3.5" />
+                              Add Stocks
                             </Button>
                           </div>
                         </td>

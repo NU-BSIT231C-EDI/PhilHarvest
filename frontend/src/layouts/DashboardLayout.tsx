@@ -5,7 +5,7 @@ import {
   Users, Settings, Bell, MessageSquare, Star, BarChart2, Leaf,
   Menu, X, LogOut, ChevronRight, FileText, Map, UserCheck,
   History, Camera, ClipboardList, PlusCircle, Archive, Megaphone,
-  Monitor, TrendingUp, Network, Inbox, Building2, Send, Handshake, PackageSearch,
+  Monitor, TrendingUp, Network, Inbox, Send, Handshake, PackageSearch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -105,7 +105,6 @@ const navConfig: Record<string, NavGroup[]> = {
       items: [
         { label: "EDI Dashboard", href: "/admin/edi/dashboard", icon: Network },
         { label: "Transaction Inbox", href: "/admin/edi/transactions", icon: Inbox },
-        { label: "Trading Partners", href: "/admin/edi/companies", icon: Building2 },
         { label: "Outbound Builder", href: "/admin/edi/outbound", icon: Send },
       ],
     },

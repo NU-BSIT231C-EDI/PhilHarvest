@@ -35,8 +35,9 @@ class Edi990Parser
             $dtm = $this->findSegments('DTM');
 
             // B1A[1] = response code in standard format (A/D/C)
+            // B1[3]  = response code in simplified format (B1*carrier*ref*A)
             // BEG[1] = response code in legacy format (AA/RE)
-            $responseCode = $b1a[1] ?? $beg[1] ?? 'UN';
+            $responseCode = $b1a[1] ?? $b1[3] ?? $beg[1] ?? 'UN';
 
             // B1[2] = load tender reference; BEG[2] = legacy equivalent
             $loadTenderId = ($b1[2] ?? '') !== '' ? $b1[2] : ($beg[2] ?? 'UNKNOWN');

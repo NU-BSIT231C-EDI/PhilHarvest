@@ -39,9 +39,11 @@ export interface BackendTransaction {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const TYPE_LABELS: Record<string, string> = {
+  '846': 'Inventory Advice',
   '850': 'Purchase Order',
   '855': 'PO Acknowledgment',
   '856': 'Advance Ship Notice',
+  '861': 'Receiving Advice',
   '810': 'Invoice',
   '204': 'Load Tender',
   '990': 'Load Tender Response',
@@ -154,6 +156,23 @@ export async function send810(payload: {
   total_amount: number;
 }): Promise<{ transaction_id: number; control_number: string; status: string }> {
   const res = await fetch(`${API_URL}/api/edi/810/send`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok && res.status !== 202) throw new Error(extractErrorMessage(data, `Send failed (${res.status})`));
+  return data;
+}
+
+/** POST /api/edi/846/send — inventory advice triggered on stock update */
+export async function send846(payload: {
+  items: Array<{ sku: string; upc?: string; quantity: number; uom?: string }>;
+  reference_number?: string;
+  warehouse_name?: string;
+  vendor_id?: string;
+}): Promise<{ transaction_id: number; control_number: string; status: string }> {
+  const res = await fetch(`${API_URL}/api/edi/846/send`, {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify(payload),

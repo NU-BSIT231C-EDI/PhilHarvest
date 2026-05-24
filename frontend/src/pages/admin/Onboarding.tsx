@@ -12,9 +12,32 @@ import { Checkbox } from "@/components/ui/checkbox";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import { useToast } from "@/hooks/use-toast";
 import { createTradingPartner, updateTradingPartner, type TradingPartner } from "@/services/ediApi";
-import { useContractStore, useProductStore } from "@/store";
-import { sellers } from "@/data/mockData";
-import type { Contract, ContractStatus } from "@/types";
+import { useContractStore } from "@/store";
+import { fetchProducts, type ApiProduct } from "@/services/productsApi";
+import type { Contract, ContractStatus, Product } from "@/types";
+
+function apiToProduct(p: ApiProduct): Product {
+  return {
+    id: String(p.id),
+    name: p.name,
+    category: p.category ?? "other",
+    description: p.description ?? "",
+    price: parseFloat(p.unit_price),
+    unit: p.unit_of_measure,
+    stock: p.stock_quantity,
+    sellerId: p.seller_name ?? "unknown",
+    sellerName: p.seller_name ?? "Unknown Seller",
+    sellerRegion: "Philippines",
+    images: p.image_url ? [p.image_url] : [],
+    rating: 0,
+    reviewCount: 0,
+    status: p.is_active ? "active" : "inactive",
+    featured: false,
+    createdAt: p.created_at,
+  };
+}
+
+interface DerivedSeller { id: string; farmName: string; province: string }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -82,7 +105,22 @@ export default function AdminOnboarding() {
 
   const { toast } = useToast();
   const { contracts, addContract, updateContract } = useContractStore();
-  const allStoreProducts = useProductStore((s) => s.products);
+  const [allStoreProducts, setAllStoreProducts] = useState<Product[]>([]);
+  const [sellers, setSellers] = useState<DerivedSeller[]>([]);
+
+  useEffect(() => {
+    fetchProducts({ per_page: 200 }).then((page) => {
+      const prods = page.data.map(apiToProduct);
+      setAllStoreProducts(prods);
+      const seen = new Map<string, DerivedSeller>();
+      for (const p of prods) {
+        if (!seen.has(p.sellerId)) {
+          seen.set(p.sellerId, { id: p.sellerId, farmName: p.sellerName, province: "Philippines" });
+        }
+      }
+      setSellers(Array.from(seen.values()));
+    }).catch(() => {});
+  }, []);
 
   const [step, setStep]         = useState<1 | 2>(1);
   const [saving, setSaving]     = useState(false);
@@ -193,8 +231,8 @@ export default function AdminOnboarding() {
       );
 
       const sellerIds   = s2.allSellers ? sellers.map((s) => s.id) : s2.authorizedSellers;
-      const sellerId    = sellerIds[0] ?? "s1";
-      const sellerName  = sellers.find((s) => s.id === sellerId)?.farmName ?? sellerIds[0] ?? "Unknown";
+      const sellerId    = sellerIds[0] ?? "unknown";
+      const sellerName  = sellers.find((s) => s.id === sellerId)?.farmName ?? sellerId ?? "Unknown";
 
       const duration = Math.max(1, Math.round(
         (new Date(s2.endDate).getTime() - new Date(s2.startDate).getTime()) / (1000 * 60 * 60 * 24 * 30)

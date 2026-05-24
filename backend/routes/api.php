@@ -53,6 +53,9 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     
     // EDI 990: Response to Load Tender (from Logistics Partner)
     Route::post('/990/receive', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive990']);
+
+    // EDI 861: Receiving Advice (from Manufacturer/Buyer, confirms goods received)
+    Route::post('/861/receive', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive861']);
     
     // ========================================================================
     // OUTBOUND ENDPOINTS - Generate and transmit raw X12 EDI strings
@@ -60,6 +63,9 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     
     // Relay: proxy an outbound EDI HTTP call server-side (avoids browser CORS)
     Route::post('/relay', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'relay']);
+
+    // EDI 846: Inventory Advice (to Manufacturer — triggered on stock update)
+    Route::post('/846/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send846']);
 
     // EDI 855: Purchase Order Acknowledgment (to Manufacturer)
     Route::post('/855/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send855']);

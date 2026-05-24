@@ -23,6 +23,7 @@ return [
             'version' => env('EDI_MANUFACTURER_X12_VERSION', env('EDI_X12_VERSION', '005010')),
         ],
         'endpoints' => [
+            '846' => env('EDI_MANUFACTURER_ENDPOINT_846'),  // Inventory Advice
             '855' => env('EDI_MANUFACTURER_ENDPOINT_855'),  // PO Acknowledgment
             '856' => env('EDI_MANUFACTURER_ENDPOINT_856'),  // ASN
             '810' => env('EDI_MANUFACTURER_ENDPOINT_810'),  // Invoice
