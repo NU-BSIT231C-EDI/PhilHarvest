@@ -55,18 +55,19 @@ export default function Inventory() {
     const newQty = (stocks[p.id] ?? p.stock_quantity) + delta;
     try {
       await updateProduct(p.id, { stock_quantity: newQty });
-      setStocks((prev) => ({ ...prev, [p.id]: newQty }));
+      const updatedStocks = { ...stocks, [p.id]: newQty };
+      setStocks(updatedStocks);
       setAddQty((prev) => ({ ...prev, [p.id]: 0 }));
 
-      // Send EDI 846 to SERMACROPS with updated stock level
+      // Send EDI 846 with full inventory snapshot (all products)
       const today = new Date().toISOString().slice(0, 10);
       await send846({
-        reference_number: `INVEN-${today}-${p.id}`,
-        items: [{
-          sku:      p.sku,
-          quantity: newQty,
-          uom:      p.unit_of_measure ?? 'EA',
-        }],
+        reference_number: `INVEN-${today}`,
+        items: products.map((prod) => ({
+          sku:      prod.sku,
+          quantity: updatedStocks[prod.id] ?? prod.stock_quantity,
+          uom:      prod.unit_of_measure ?? 'EA',
+        })),
       });
 
       toast({
