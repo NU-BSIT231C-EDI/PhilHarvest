@@ -9,6 +9,7 @@ use App\Services\Edi\Parsers\Edi850Parser;
 use App\Services\Edi\Parsers\Edi990Parser;
 use App\Jobs\ProcessEdiInboundJob;
 use App\Models\EdiTransaction;
+use App\Models\TradingPartner;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -96,6 +97,11 @@ class InboundX12Controller
                     'error' => 'Invalid X12 format',
                     'message' => 'Payload does not appear to be valid X12 EDI',
                 ], Response::HTTP_BAD_REQUEST);
+            }
+
+            // Reject if sender is not a registered trading partner
+            if ($reject = $this->rejectUnknownSender($rawEdi)) {
+                return $reject;
             }
 
             // Parse the X12 string
@@ -239,6 +245,10 @@ class InboundX12Controller
                 ], Response::HTTP_BAD_REQUEST);
             }
 
+            if ($reject = $this->rejectUnknownSender($rawEdi)) {
+                return $reject;
+            }
+
             // Parse the X12 string
             $dto = $this->edi990Parser->parse($rawEdi);
 
@@ -354,6 +364,10 @@ class InboundX12Controller
                 ], Response::HTTP_BAD_REQUEST);
             }
 
+            if ($reject = $this->rejectUnknownSender($rawEdi)) {
+                return $reject;
+            }
+
             $controlNumber = $this->extractIsaField($rawEdi, 13);
             $partnerId     = $this->extractIsaField($rawEdi, 6);
             $parsedData    = $this->parse861($rawEdi);
@@ -458,6 +472,29 @@ class InboundX12Controller
         }
 
         return $data;
+    }
+
+    /**
+     * Reject the request when ISA06 (sender ID) is not a registered trading partner.
+     * Returns a 403 JSON response, or null when the sender is known.
+     */
+    private function rejectUnknownSender(string $rawEdi): ?\Illuminate\Http\JsonResponse
+    {
+        $senderId = trim($this->extractIsaField($rawEdi, 6));
+
+        $known = TradingPartner::all()->contains(
+            fn (TradingPartner $p) => strcasecmp(trim($p->isa_receiver_id), $senderId) === 0
+        );
+
+        if (!$known) {
+            Log::warning('EDI rejected: unregistered sender', ['sender_id' => $senderId]);
+            return response()->json([
+                'error'   => 'Unknown trading partner',
+                'message' => "Sender '{$senderId}' is not a registered trading partner.",
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        return null;
     }
 
     /**

@@ -920,15 +920,15 @@ function ThreadRow({
             locked={state.isRejected}
           />
           <DocStep
-            docType="861" label="Receiving Advice"
-            docs={thread.docs861} canSend={false}
-            onView={onView} locked={state.isRejected} inbound
-          />
-          <DocStep
             docType="810" label="Invoice"
             docs={thread.docs810} canSend={state.can810}
             onSend={() => actions.send810(po)} onView={onView}
             locked={state.isRejected || (!state.can810 && thread.docs810.length === 0 && thread.docs856.length === 0)}
+          />
+          <DocStep
+            docType="861" label="Receiving Advice"
+            docs={thread.docs861} canSend={false}
+            onView={onView} locked={state.isRejected} inbound
           />
         </div>
       )}
@@ -991,7 +991,7 @@ export default function EdiTransactions() {
   async function handleDeleteThread(thread: Thread) {
     if (!window.confirm(`Delete this 850 thread (${(thread.po.parsedData?.po_number as string | undefined) ?? thread.po.id}) and all its related documents? This cannot be undone.`)) return;
     setDeletingThread(thread.po.id);
-    const allDocs = [thread.po, ...thread.docs855, ...thread.docs204, ...thread.docs990, ...thread.docs856, ...thread.docs861, ...thread.docs810];
+    const allDocs = [thread.po, ...thread.docs855, ...thread.docs204, ...thread.docs990, ...thread.docs856, ...thread.docs810, ...thread.docs861];
     try {
       await Promise.all(allDocs.map((d) => deleteTransaction(d.backendId)));
       toast({ title: "Thread deleted", description: `PO thread and ${allDocs.length} document(s) removed.` });
