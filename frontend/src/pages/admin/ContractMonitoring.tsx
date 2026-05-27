@@ -404,7 +404,7 @@ export default function ContractMonitoring() {
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <Button size="icon" variant="ghost" className="w-8 h-8" onClick={load} disabled={loading} title="Refresh">
+                <Button size="icon" variant="ghost" className="w-8 h-8" onClick={() => load()} disabled={loading} title="Refresh">
                   <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
                 </Button>
                 {!showArchived && (

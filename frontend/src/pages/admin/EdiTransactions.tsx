@@ -1060,7 +1060,7 @@ export default function EdiTransactions() {
               data-testid="input-search-edi"
             />
           </div>
-          <Button variant="outline" size="icon" title="Refresh" onClick={loadDocs} disabled={loading} data-testid="button-refresh-edi">
+          <Button variant="outline" size="icon" title="Refresh" onClick={() => loadDocs()} disabled={loading} data-testid="button-refresh-edi">
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
         </div>
