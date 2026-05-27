@@ -16,6 +16,7 @@ use App\DTOs\Edi\Edi856AdvanceShipNoticeDto;
 use App\DTOs\Edi\Edi856BoxDto;
 use App\DTOs\Edi\Edi856BoxLineItemDto;
 use App\Models\EdiTransaction;
+use App\Models\TradingPartner;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
@@ -152,6 +153,35 @@ class OutboundX12Controller
             });
 
             $validated = $validator->validate();
+
+            // Enforce contract exclusions: any line whose part_number is in the
+            // partner's excluded_skus must be auto-rejected regardless of what the
+            // frontend sent.
+            $partner855 = TradingPartner::whereRaw('UPPER(TRIM(isa_receiver_id)) = ?', [strtoupper(trim($validated['manufacturer_id']))])
+                ->first();
+            if ($partner855 && !empty($partner855->excluded_skus)) {
+                $excluded855 = array_map(fn ($s) => strtoupper(trim($s)), $partner855->excluded_skus);
+                foreach ($validated['line_acknowledgments'] as &$lineAck855) {
+                    $sku855 = strtoupper(trim($lineAck855['part_number'] ?? ''));
+                    if ($sku855 !== '' && in_array($sku855, $excluded855)) {
+                        $origQty855 = (float)($lineAck855['accepted_quantity'] ?? 0)
+                                    + (float)($lineAck855['rejected_quantity'] ?? 0);
+                        $lineAck855['acknowledgment_code'] = 'RE';
+                        $lineAck855['accepted_quantity']   = 0;
+                        $lineAck855['rejected_quantity']   = $origQty855 ?: 1;
+                        $lineAck855['rejection_reason']    = 'Item not covered by supply agreement';
+                    }
+                }
+                unset($lineAck855);
+                // Recompute header ack code
+                $rejCount855 = count(array_filter($validated['line_acknowledgments'], fn ($l) => $l['acknowledgment_code'] === 'RE'));
+                if ($rejCount855 === count($validated['line_acknowledgments'])) {
+                    $validated['acknowledgment_code'] = 'RE';
+                    $validated['rejection_reason']    = $validated['rejection_reason'] ?? 'Items not covered by supply agreement';
+                } elseif ($rejCount855 > 0) {
+                    $validated['acknowledgment_code'] = 'IA';
+                }
+            }
 
             // Build DTO
             $dto = new Edi855PurchaseOrderAckDto(
@@ -915,7 +945,28 @@ class OutboundX12Controller
                 ], Response::HTTP_UNPROCESSABLE_ENTITY);
             }
 
-            $x12 = $this->edi846Generator->generate($request->all());
+            $data846 = $request->all();
+
+            // Enforce contract exclusions: strip any items the buyer is not contracted
+            // to receive before the X12 is generated.
+            $buyerPartner = TradingPartner::where('edi_role', 'BY')
+                ->where(fn ($q) => $q->whereNull('is_archived')->orWhere('is_archived', false))
+                ->first();
+            if ($buyerPartner && !empty($buyerPartner->excluded_skus)) {
+                $excludedSkus = array_map(fn ($s) => strtoupper(trim($s)), $buyerPartner->excluded_skus);
+                $data846['items'] = array_values(array_filter(
+                    $data846['items'],
+                    fn ($item) => !in_array(strtoupper(trim($item['sku'] ?? '')), $excludedSkus)
+                ));
+                if (empty($data846['items'])) {
+                    return response()->json([
+                        'error'   => 'No eligible items',
+                        'message' => 'All items are excluded by the buyer contract. No 846 sent.',
+                    ], Response::HTTP_UNPROCESSABLE_ENTITY);
+                }
+            }
+
+            $x12 = $this->edi846Generator->generate($data846);
             $transaction = $this->transmissionService->send846($x12);
 
             return response()->json([
