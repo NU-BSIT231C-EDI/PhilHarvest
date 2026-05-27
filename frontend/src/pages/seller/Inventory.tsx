@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { usePolling } from "@/hooks/use-polling";
 import { AlertTriangle, Save, Send } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -17,23 +18,37 @@ export default function Inventory() {
   const [saving, setSaving]       = useState<Record<number, boolean>>({});
   const [sending, setSending]     = useState(false);
   const { toast } = useToast();
+  const addQtyRef = useRef(addQty);
+  addQtyRef.current = addQty;
 
-  async function load() {
-    setLoading(true);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
     try {
       const [page, pts] = await Promise.all([fetchProducts(), fetchTradingPartners()]);
       setProducts(page.data);
       setPartners(pts);
-      setStocks(Object.fromEntries(page.data.map((p) => [p.id, p.stock_quantity])));
-      setAddQty(Object.fromEntries(page.data.map((p) => [p.id, 0])));
+      if (silent) {
+        // Merge: only update stock for rows the user hasn't touched yet
+        setStocks((prev) => {
+          const next = { ...prev };
+          for (const p of page.data) {
+            if (!addQtyRef.current[p.id]) next[p.id] = p.stock_quantity;
+          }
+          return next;
+        });
+      } else {
+        setStocks(Object.fromEntries(page.data.map((p) => [p.id, p.stock_quantity])));
+        setAddQty(Object.fromEntries(page.data.map((p) => [p.id, 0])));
+      }
     } catch (e) {
-      toast({ title: "Error loading inventory", description: String(e), variant: "destructive" });
+      if (!silent) toast({ title: "Error loading inventory", description: String(e), variant: "destructive" });
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
   useEffect(() => { load(); }, []);
+  usePolling(() => load(true), 10_000);
 
   async function saveStock(p: ApiProduct) {
     setSaving((prev) => ({ ...prev, [p.id]: true }));

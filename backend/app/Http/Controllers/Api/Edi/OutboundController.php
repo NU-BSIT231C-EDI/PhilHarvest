@@ -118,7 +118,7 @@ class OutboundController
                     'partner_id' => $transaction->partner_id,
                     'status' => $transaction->status,
                     'direction' => $direction,
-                    'payload_preview' => $payload ? mb_substr($payload, 0, 500) : null,
+                    'payload_preview' => $payload ?: null,
                     'parsed_data' => $transaction->parsed_data,
                     'created_at' => optional($transaction->created_at)->toIso8601String(),
                 ];

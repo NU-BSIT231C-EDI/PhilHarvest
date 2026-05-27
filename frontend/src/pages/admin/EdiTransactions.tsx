@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { usePolling } from "@/hooks/use-polling";
 import { Search, Download, RefreshCw, ArrowRight, ChevronDown, ChevronRight, Printer, Leaf, Trash2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
@@ -753,13 +754,12 @@ function getThreadState(t: Thread): ThreadState {
     (latest855?.parsedData?.acknowledgment_code as string | undefined) ??
     latest855?.raw?.match(/BAK\*[^*]*\*([^*~\r\n]+)/)?.[1]?.trim();
   const isRejected = has855Delivered && ackCode855 === "RE";
-  const has856 = t.docs856.length > 0;
 
   return {
     can855: t.docs855.length === 0,
     can204: has855Delivered && !isRejected && t.docs204.length === 0,
     can856: has855Delivered && !isRejected && t.docs856.length === 0,
-    can810: has856 && t.docs810.length === 0,
+    can810: has855Delivered && !isRejected && t.docs810.length === 0,
     isRejected,
   };
 }
@@ -926,7 +926,7 @@ function ThreadRow({
             docType="810" label="Invoice"
             docs={thread.docs810} canSend={state.can810}
             onSend={() => actions.send810(po)} onView={onView}
-            locked={state.isRejected || (!state.can810 && thread.docs810.length === 0 && thread.docs856.length === 0)}
+            locked={state.isRejected}
           />
           <DocStep
             docType="861" label="Receiving Advice"
@@ -968,15 +968,16 @@ export default function EdiTransactions() {
     fetchTradingPartners().then(setPartners).catch(() => {});
   }, []);
 
-  const loadDocs = useCallback(() => {
-    setLoading(true);
+  const loadDocs = useCallback((silent = false) => {
+    if (!silent) setLoading(true);
     fetchTransactions()
       .then((data) => setAllDocs(data.map(mapTransaction)))
-      .catch((err) => toast({ title: "Failed to load transactions", description: err.message, variant: "destructive" }))
-      .finally(() => setLoading(false));
+      .catch((err) => { if (!silent) toast({ title: "Failed to load transactions", description: err.message, variant: "destructive" }); })
+      .finally(() => { if (!silent) setLoading(false); });
   }, [toast]);
 
   useEffect(() => { loadDocs(); }, [loadDocs]);
+  usePolling(() => loadDocs(true), 10_000);
 
   async function handleRetry(doc: EdiDoc) {
     setRetrying(doc.backendId);
@@ -1152,7 +1153,7 @@ export default function EdiTransactions() {
                         <summary className="text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
                           Show raw EDI payload
                         </summary>
-                        <pre className="mt-2 bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-40">{selected.raw}</pre>
+                        <pre className="mt-2 bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-[40vh]">{selected.raw}</pre>
                       </details>
                     )}
                     <div className="flex gap-2 flex-wrap pt-1 border-t border-border">
@@ -1172,7 +1173,7 @@ export default function EdiTransactions() {
                         <summary className="text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
                           Show raw EDI payload
                         </summary>
-                        <pre className="mt-2 bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-40">{selected.raw}</pre>
+                        <pre className="mt-2 bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-[40vh]">{selected.raw}</pre>
                       </details>
                     )}
                     <div className="flex gap-2 flex-wrap pt-1 border-t border-border">
@@ -1192,7 +1193,7 @@ export default function EdiTransactions() {
                         <summary className="text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground">
                           Show raw EDI payload
                         </summary>
-                        <pre className="mt-2 bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-40">{selected.raw}</pre>
+                        <pre className="mt-2 bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-[40vh]">{selected.raw}</pre>
                       </details>
                     )}
                     <div className="flex gap-2 flex-wrap pt-1 border-t border-border">
@@ -1213,7 +1214,7 @@ export default function EdiTransactions() {
                     {selected.raw && (
                       <div>
                         <p className="text-xs text-muted-foreground mb-1">Raw EDI Payload</p>
-                        <pre className="bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-48">{selected.raw}</pre>
+                        <pre className="bg-muted text-xs p-3 rounded-lg font-mono break-all whitespace-pre-wrap text-foreground overflow-auto max-h-[40vh]">{selected.raw}</pre>
                       </div>
                     )}
                     <div className="flex gap-2 flex-wrap pt-1">

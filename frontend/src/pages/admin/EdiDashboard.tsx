@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { usePolling } from "@/hooks/use-polling";
 import { Link } from "wouter";
 import { FileCheck2, Clock, CheckCircle2, Send, ArrowRight, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,15 +59,16 @@ export default function EdiDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
+  const loadData = useCallback((silent = false) => {
+    if (!silent) setLoading(true);
     fetchTransactions()
-      .then((data) => { if (!cancelled) { setTxns(data); setError(null); } })
-      .catch((err) => { if (!cancelled) setError(err.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .then((data) => { setTxns(data); if (!silent) setError(null); })
+      .catch((err) => { if (!silent) setError(err.message); })
+      .finally(() => { if (!silent) setLoading(false); });
   }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+  usePolling(() => loadData(true), 10_000);
 
   // ─── Derived stats ────────────────────────────────────────────────────────
   const delivered     = txns.filter((t) => t.status === 'SENT').length;

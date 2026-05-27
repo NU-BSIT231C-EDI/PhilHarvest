@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { usePolling } from "@/hooks/use-polling";
 import {
   Building2, Plus, Search, Edit, Trash2, Eye, EyeOff,
   Copy, Check, RefreshCw, Users, ShoppingCart, Factory, Truck,
@@ -85,15 +86,16 @@ export default function ContractMonitoring() {
 
   const { toast } = useToast();
 
-  const load = useCallback(() => {
-    setLoading(true);
+  const load = useCallback((silent = false) => {
+    if (!silent) setLoading(true);
     Promise.all([fetchTradingPartners(), fetchProducts({ per_page: 500 })])
       .then(([pts, page]) => { setPartners(pts); setProducts(page.data); })
-      .catch((err) => toast({ title: "Failed to load data", description: err.message, variant: "destructive" }))
-      .finally(() => setLoading(false));
+      .catch((err) => { if (!silent) toast({ title: "Failed to load data", description: err.message, variant: "destructive" }); })
+      .finally(() => { if (!silent) setLoading(false); });
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+  usePolling(() => load(true), 10_000);
 
   function field<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
