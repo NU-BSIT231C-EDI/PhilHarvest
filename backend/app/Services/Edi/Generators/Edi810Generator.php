@@ -75,7 +75,8 @@ class Edi810Generator
         }
 
         // TDS - Total Monetary Value Summary (mandatory in 810)
-        $tdsAmount = number_format((float)($dto->totalAmount ?? 0), 2, '.', '');
+        // TDS01 uses implied 2-decimal format (no literal decimal point): 250.00 → 25000
+        $tdsAmount = (string)(int)round((float)($dto->totalAmount ?? 0) * 100);
         $segments[] = "TDS{$this->fieldSeparator}{$tdsAmount}";
 
         // TXI - Tax Information

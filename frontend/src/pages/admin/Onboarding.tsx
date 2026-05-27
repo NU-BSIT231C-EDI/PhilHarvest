@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import { useToast } from "@/hooks/use-toast";
-import { createTradingPartner, updateTradingPartner, type TradingPartner } from "@/services/ediApi";
+import { createTradingPartner, updateTradingPartner, fetchTradingPartners, type TradingPartner } from "@/services/ediApi";
 import { useContractStore } from "@/store";
 import { fetchProducts, type ApiProduct } from "@/services/productsApi";
 import type { Contract, ContractStatus, Product } from "@/types";
@@ -106,12 +106,14 @@ export default function AdminOnboarding() {
   const { toast } = useToast();
   const { contracts, addContract, updateContract } = useContractStore();
   const [allStoreProducts, setAllStoreProducts] = useState<Product[]>([]);
-  const [sellers, setSellers] = useState<DerivedSeller[]>([]);
+  const [rawProducts, setRawProducts]           = useState<ApiProduct[]>([]);
+  const [sellers, setSellers]                   = useState<DerivedSeller[]>([]);
 
   useEffect(() => {
     fetchProducts({ per_page: 200 }).then((page) => {
       const prods = page.data.map(apiToProduct);
       setAllStoreProducts(prods);
+      setRawProducts(page.data);
       const seen = new Map<string, DerivedSeller>();
       for (const p of prods) {
         if (!seen.has(p.sellerId)) {
@@ -204,19 +206,7 @@ export default function AdminOnboarding() {
     if (!validateStep2()) return;
     setSaving(true);
     try {
-      // Step 1: create/update trading partner via API
-      const tpPayload = {
-        ...s1,
-        label: s1.label || s1.company_name,
-      } as Omit<TradingPartner, "id" | "auth_token_masked" | "n1_segments" | "created_at" | "updated_at">;
-
-      if (editingContract) {
-        // If editing, skip partner creation (user may not want to recreate)
-      } else {
-        await createTradingPartner(tpPayload);
-      }
-
-      // Step 2: build contract and save to store
+      // Build contract product list and derive excluded SKUs for the trading partner
       const validProducts = availableProducts
         .filter((p) => s2.products[p.id]?.included && s2.products[p.id]?.quantity?.trim())
         .map((p) => ({
@@ -226,6 +216,35 @@ export default function AdminOnboarding() {
           unit:        p.unit,
           unitPrice:   Number(s2.products[p.id].agreedPrice || p.price),
         }));
+
+      // excluded_skus = every product NOT selected in Step 2
+      const includedIds = new Set(validProducts.map((p) => p.productId));
+      const excludedSkus = rawProducts
+        .filter((rp) => !includedIds.has(String(rp.id)))
+        .map((rp) => rp.sku)
+        .filter(Boolean);
+
+      // Create or update the trading partner with the derived excluded SKUs
+      const tpPayload = {
+        ...s1,
+        label: s1.label || s1.company_name,
+        excluded_skus: excludedSkus,
+      } as Omit<TradingPartner, "id" | "auth_token_masked" | "n1_segments" | "created_at" | "updated_at">;
+
+      if (editingContract) {
+        // Find existing partner by ISA receiver ID and sync excluded_skus
+        const allPartners = await fetchTradingPartners();
+        const existing = allPartners.find(
+          (pt) => pt.isa_receiver_id.trim().toUpperCase() === s1.isa_receiver_id.trim().toUpperCase()
+        );
+        if (existing) {
+          if (!s1.auth_token.trim()) delete (tpPayload as Record<string, unknown>).auth_token;
+          await updateTradingPartner(existing.id, { excluded_skus: excludedSkus });
+        }
+      } else {
+        await createTradingPartner(tpPayload);
+      }
+
       const totalValue = validProducts.reduce(
         (sum, p) => sum + p.quantity * p.unitPrice, 0
       );

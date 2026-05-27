@@ -22,11 +22,13 @@ class TradingPartner extends Model
         'api_endpoint',
         'auth_token',
         'excluded_skus',
+        'is_archived',
     ];
 
     protected $casts = [
         'auth_token'    => 'encrypted',
         'excluded_skus' => 'array',
+        'is_archived'   => 'boolean',
     ];
 
     /** Auto-pad ISA receiver ID to exactly 15 chars (right-padded with spaces). */

@@ -240,6 +240,20 @@ export async function deleteTradingPartner(id: number): Promise<void> {
   if (!res.ok && res.status !== 204) throw new Error(`Delete failed (${res.status})`);
 }
 
+export async function archiveTradingPartner(id: number): Promise<TradingPartner> {
+  const res = await fetch(`${API_URL}/api/edi/trading-partners/${id}/archive`, { method: 'PATCH', headers: authHeaders() });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message ?? `Archive failed (${res.status})`);
+  return json;
+}
+
+export async function unarchiveTradingPartner(id: number): Promise<TradingPartner> {
+  const res = await fetch(`${API_URL}/api/edi/trading-partners/${id}/unarchive`, { method: 'PATCH', headers: authHeaders() });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message ?? `Unarchive failed (${res.status})`);
+  return json;
+}
+
 export interface TradingPartner {
   id: number;
   label: string;
@@ -258,6 +272,7 @@ export interface TradingPartner {
   auth_token: string;
   auth_token_masked?: string;
   excluded_skus?: string[] | null;
+  is_archived?: boolean;
   n1_segments?: string[];
   created_at?: string;
   updated_at?: string;

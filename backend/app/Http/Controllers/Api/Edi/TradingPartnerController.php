@@ -45,6 +45,20 @@ class TradingPartnerController extends Controller
         return response()->json(null, 204);
     }
 
+    public function archive(TradingPartner $tradingPartner): JsonResponse
+    {
+        $tradingPartner->update(['is_archived' => true]);
+
+        return response()->json($this->format($tradingPartner->fresh()));
+    }
+
+    public function unarchive(TradingPartner $tradingPartner): JsonResponse
+    {
+        $tradingPartner->update(['is_archived' => false]);
+
+        return response()->json($this->format($tradingPartner->fresh()));
+    }
+
     // -------------------------------------------------------------------------
 
     private function validated(Request $request, bool $forUpdate = false): array
@@ -96,6 +110,7 @@ class TradingPartnerController extends Controller
             'auth_token'       => $token,
             'auth_token_masked' => $masked,
             'excluded_skus'    => $p->excluded_skus ?? [],
+            'is_archived'      => (bool) ($p->is_archived ?? false),
             'n1_segments'      => $p->toEdiN1Loop(),
             'created_at'       => $p->created_at,
             'updated_at'       => $p->updated_at,

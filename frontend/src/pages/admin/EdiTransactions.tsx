@@ -676,8 +676,8 @@ function extractPoFromX12(raw: string | undefined): string | undefined {
   // 810: BIG*{date}*{inv}*{date}*{PO} (BIG04)
   match = raw.match(/BIG\*[^*]*\*[^*]*\*[^*]*\*([^*~\r\n]+)/);
   if (match?.[1]?.trim()) return match[1].trim();
-  // 204: L11*{PO}*PO (L11-01)
-  match = raw.match(/L11\*([^*~\r\n]+)/);
+  // 204: L11*{PO}*PO — only match when qualifier is PO, not CR/other
+  match = raw.match(/L11\*([^*~\r\n]+)\*PO[^*~\r\n]*/);
   if (match?.[1]?.trim()) return match[1].trim();
   // 861: BRA*{ra_num}*{PO} (BRA02)
   match = raw.match(/BRA\*[^*]*\*([^*~\r\n]+)/);
@@ -715,7 +715,10 @@ function buildThreads(docs: EdiDoc[]): { threads: Thread[]; orphans: EdiDoc[] } 
     function byPoOnly(type: string) {
       return (d: EdiDoc) => {
         if (used.has(d.id) || d.type !== type) return false;
-        const dPo = (d.parsedData?.po_number as string | undefined) ?? extractPoFromX12(d.raw);
+        // 990 stores the PO reference in load_tender_id (B1[2]), not po_number
+        const dPo = (d.parsedData?.po_number as string | undefined)
+          ?? (d.parsedData?.load_tender_id as string | undefined)
+          ?? extractPoFromX12(d.raw);
         return !!poNum && !!dPo && dPo === poNum;
       };
     }

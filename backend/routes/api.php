@@ -92,6 +92,8 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     Route::get('/trading-partners/{tradingPartner}', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'show']);
     Route::put('/trading-partners/{tradingPartner}', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'update']);
     Route::delete('/trading-partners/{tradingPartner}', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'destroy']);
+    Route::patch('/trading-partners/{tradingPartner}/archive', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'archive']);
+    Route::patch('/trading-partners/{tradingPartner}/unarchive', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'unarchive']);
 
     // ========================================================================
     // TRANSACTION MANAGEMENT ENDPOINTS
