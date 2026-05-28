@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Edi;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use App\Services\Edi\Generators\Edi846Generator;
 use App\Services\Edi\Generators\Edi855Generator;
 use App\Services\Edi\Generators\Edi204Generator;
 use App\Services\Edi\Generators\Edi856Generator;
@@ -11,7 +12,11 @@ use App\Services\Edi\Generators\Edi810Generator;
 use App\Services\Edi\OutboundEdiTransmissionService;
 use App\DTOs\Edi\Edi855PurchaseOrderAckDto;
 use App\DTOs\Edi\Edi855LineAckDto;
+use App\DTOs\Edi\Edi856AdvanceShipNoticeDto;
+use App\DTOs\Edi\Edi856BoxDto;
+use App\DTOs\Edi\Edi856BoxLineItemDto;
 use App\Models\EdiTransaction;
+use App\Models\TradingPartner;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
@@ -27,6 +32,9 @@ use Illuminate\Support\Facades\Validator;
  */
 class OutboundX12Controller
 {
+    private const VALIDATION_FAILED = 'Validation failed';
+
+    private Edi846Generator $edi846Generator;
     private Edi855Generator $edi855Generator;
     private Edi204Generator $edi204Generator;
     private Edi856Generator $edi856Generator;
@@ -34,12 +42,14 @@ class OutboundX12Controller
     private OutboundEdiTransmissionService $transmissionService;
 
     public function __construct(
+        Edi846Generator $edi846Generator,
         Edi855Generator $edi855Generator,
         Edi204Generator $edi204Generator,
         Edi856Generator $edi856Generator,
         Edi810Generator $edi810Generator,
         OutboundEdiTransmissionService $transmissionService
     ) {
+        $this->edi846Generator = $edi846Generator;
         $this->edi855Generator = $edi855Generator;
         $this->edi204Generator = $edi204Generator;
         $this->edi856Generator = $edi856Generator;
@@ -83,7 +93,12 @@ class OutboundX12Controller
                 'line_acknowledgments.*.rejected_quantity' => 'nullable|numeric|min:0',
                 'line_acknowledgments.*.rejection_reason' => 'nullable|string',
                 'line_acknowledgments.*.estimated_delivery_date' => 'nullable|date',
+                'line_acknowledgments.*.part_number' => 'nullable|string',
+                'line_acknowledgments.*.unit_price' => 'nullable|numeric|min:0',
                 'rejection_reason' => 'nullable|string',
+                'estimated_ship_date' => 'nullable|date',
+                'manufacturer_address' => 'nullable|array',
+                'seller_address' => 'nullable|array',
             ]);
 
             $validator->after(function ($validator) use ($request) {
@@ -139,6 +154,35 @@ class OutboundX12Controller
 
             $validated = $validator->validate();
 
+            // Enforce contract exclusions: any line whose part_number is in the
+            // partner's excluded_skus must be auto-rejected regardless of what the
+            // frontend sent.
+            $partner855 = TradingPartner::whereRaw('UPPER(TRIM(isa_receiver_id)) = ?', [strtoupper(trim($validated['manufacturer_id']))])
+                ->first();
+            if ($partner855 && !empty($partner855->excluded_skus)) {
+                $excluded855 = array_map(fn ($s) => strtoupper(trim($s)), $partner855->excluded_skus);
+                foreach ($validated['line_acknowledgments'] as &$lineAck855) {
+                    $sku855 = strtoupper(trim($lineAck855['part_number'] ?? ''));
+                    if ($sku855 !== '' && in_array($sku855, $excluded855)) {
+                        $origQty855 = (float)($lineAck855['accepted_quantity'] ?? 0)
+                                    + (float)($lineAck855['rejected_quantity'] ?? 0);
+                        $lineAck855['acknowledgment_code'] = 'RE';
+                        $lineAck855['accepted_quantity']   = 0;
+                        $lineAck855['rejected_quantity']   = $origQty855 ?: 1;
+                        $lineAck855['rejection_reason']    = 'Item not covered by supply agreement';
+                    }
+                }
+                unset($lineAck855);
+                // Recompute header ack code
+                $rejCount855 = count(array_filter($validated['line_acknowledgments'], fn ($l) => $l['acknowledgment_code'] === 'RE'));
+                if ($rejCount855 === count($validated['line_acknowledgments'])) {
+                    $validated['acknowledgment_code'] = 'RE';
+                    $validated['rejection_reason']    = $validated['rejection_reason'] ?? 'Items not covered by supply agreement';
+                } elseif ($rejCount855 > 0) {
+                    $validated['acknowledgment_code'] = 'IA';
+                }
+            }
+
             // Build DTO
             $dto = new Edi855PurchaseOrderAckDto(
                 controlNumber: uniqid('PH855_'),
@@ -148,6 +192,9 @@ class OutboundX12Controller
                 acknowledgmentCode: $validated['acknowledgment_code'],
                 acknowledgedDate: date('Y-m-d'),
                 rejectionReason: $validated['rejection_reason'] ?? null,
+                estimatedShipDate: $validated['estimated_ship_date'] ?? null,
+                manufacturerAddress: $validated['manufacturer_address'] ?? null,
+                sellerAddress: $validated['seller_address'] ?? null,
             );
 
             // Add line acknowledgments
@@ -160,6 +207,8 @@ class OutboundX12Controller
                     rejectedQuantity: $lineAck['rejected_quantity'] ?? null,
                     rejectionReason: $lineAck['rejection_reason'] ?? null,
                     estimatedDeliveryDate: $lineAck['estimated_delivery_date'] ?? null,
+                    partNumber: $lineAck['part_number'] ?? null,
+                    unitPrice: isset($lineAck['unit_price']) ? (float)$lineAck['unit_price'] : null,
                 ));
             }
 
@@ -185,7 +234,7 @@ class OutboundX12Controller
 
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
-                'error' => 'Validation failed',
+                'error' => self::VALIDATION_FAILED,
                 'message' => $e->errors(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
 
@@ -203,6 +252,81 @@ class OutboundX12Controller
     }
 
     /**
+     * Preview X12 format for EDI 855 without sending
+     * POST /api/edi/855/preview
+     */
+    public function preview855(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'po_number' => 'required|string',
+                'po_date' => 'required|date',
+                'manufacturer_id' => 'required|string',
+                'acknowledgment_code' => 'required|in:AA,RE,IA',
+                'line_acknowledgments' => 'required|array|min:1',
+                'line_acknowledgments.*.line_number' => 'required|string',
+                'line_acknowledgments.*.acknowledgment_code' => 'required|in:AA,RE,IA',
+                'line_acknowledgments.*.accepted_quantity' => 'required|numeric|min:0',
+                'line_acknowledgments.*.quantity_uom' => 'required|string',
+                'line_acknowledgments.*.part_number' => 'nullable|string',
+                'line_acknowledgments.*.unit_price' => 'nullable|numeric|min:0',
+                'manufacturer_address' => 'nullable|array',
+                'seller_address' => 'nullable|array',
+            ]);
+
+            $validated = $validator->validate();
+
+            // Build DTO
+            $dto = new Edi855PurchaseOrderAckDto(
+                controlNumber: uniqid('PREV855_'),
+                poNumber: $validated['po_number'],
+                poDate: $validated['po_date'],
+                manufacturerId: $validated['manufacturer_id'],
+                acknowledgmentCode: $validated['acknowledgment_code'],
+                acknowledgedDate: date('Y-m-d'),
+                manufacturerAddress: $validated['manufacturer_address'] ?? null,
+                sellerAddress: $validated['seller_address'] ?? null,
+            );
+
+            // Add line acknowledgments
+            foreach ($validated['line_acknowledgments'] as $lineAck) {
+                $dto->addLineAck(new Edi855LineAckDto(
+                    lineNumber: $lineAck['line_number'] ?? '0',
+                    acknowledgmentCode: $lineAck['acknowledgment_code'] ?? 'AA',
+                    acceptedQuantity: (float)($lineAck['accepted_quantity'] ?? 0),
+                    quantityUom: $lineAck['quantity_uom'] ?? 'EA',
+                    partNumber: $lineAck['part_number'] ?? null,
+                    unitPrice: isset($lineAck['unit_price']) ? (float)$lineAck['unit_price'] : null,
+                ));
+            }
+
+            // Generate X12 string
+            $x12Payload = $this->edi855Generator->generate($dto);
+
+            return response()->json([
+                'x12_payload' => $x12Payload,
+                'message' => 'X12 855 preview generated (not sent)',
+            ], Response::HTTP_OK);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error' => self::VALIDATION_FAILED,
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\Exception $e) {
+            Log::error('Error previewing EDI 855', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => 'Preview failed',
+                'message' => 'Failed to generate EDI 855 preview',
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
      * Generate and send EDI 204 (Motor Carrier Load Tender)
      * POST /api/edi/204/send
      */
@@ -210,32 +334,43 @@ class OutboundX12Controller
     {
         try {
             $validated = $request->validate([
-                'load_tender_id' => 'required|string',
-                'shipper_company_name' => 'required|string',
-                'shipper_address' => 'required|array',
-                'carrier_code' => 'required|string',
-                'ship_to_address' => 'required|array',
-                'shipments' => 'required|array',
-                'pickup_date' => 'nullable|date',
-                'delivery_date' => 'nullable|date',
+                'load_tender_id'                  => 'required|string',
+                'shipper_company_name'            => 'required|string',
+                'shipper_address'                 => 'required|array',
+                'carrier_code'                    => 'required|string',
+                'ship_to_address'                 => 'required|array',
+                'shipments'                       => 'required|array|min:1',
+                'shipments.*.shipment_number'     => 'required|string',
+                'shipments.*.weight'              => 'nullable|numeric',
+                'shipments.*.weight_uom'          => 'nullable|string',
+                'shipments.*.commodity'           => 'nullable|string',
+                'pickup_date'                     => 'nullable|date',
+                'delivery_date'                   => 'nullable|date',
+                'po_number'                       => 'nullable|string',
             ]);
 
-            // Build DTO
             $dto = new \App\DTOs\Edi\Edi204MotorCarrierLoadTenderDto(
-                controlNumber: uniqid('PH204_'),
-                loadTenderId: $validated['load_tender_id'],
+                controlNumber:      uniqid('PH204_'),
+                loadTenderId:       $validated['load_tender_id'],
                 shipperCompanyName: $validated['shipper_company_name'],
-                shipperAddress: $validated['shipper_address'],
-                carrierCode: $validated['carrier_code'],
-                shipToAddress: $validated['ship_to_address'],
-                pickupDate: $validated['pickup_date'] ?? date('Ymd'),
-                deliveryDate: $validated['delivery_date'] ?? null,
+                shipperAddress:     $validated['shipper_address'],
+                carrierCode:        $validated['carrier_code'],
+                shipToAddress:      $validated['ship_to_address'],
+                pickupDate:         $validated['pickup_date'] ?? date('Y-m-d'),
+                deliveryDate:       $validated['delivery_date'] ?? null,
+                poNumber:           $validated['po_number'] ?? null,
             );
 
-            // Add shipments and line items
-            // (Implementation depends on shipment data structure in request)
+            foreach ($validated['shipments'] as $s) {
+                $dto->addShipment(new \App\DTOs\Edi\Edi204ShipmentDto(
+                    shipmentNumber: $s['shipment_number'],
+                    shipmentType:   $s['shipment_type'] ?? 'TL',
+                    weight:         isset($s['weight']) ? (float)$s['weight'] : null,
+                    weightUom:      $s['weight_uom'] ?? 'LB',
+                    commodity:      $s['commodity'] ?? null,
+                ));
+            }
 
-            // Generate X12 string
             $x12Payload = $this->edi204Generator->generate($dto);
 
             // Transmit to logistics partner
@@ -255,9 +390,22 @@ class OutboundX12Controller
                 'status' => $transaction->status,
             ], $transaction->status === 'SENT' ? Response::HTTP_OK : Response::HTTP_ACCEPTED);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error'   => self::VALIDATION_FAILED,
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'error'   => self::VALIDATION_FAILED,
+                'message' => $e->getMessage(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
         } catch (\Exception $e) {
             Log::error('Error generating/sending EDI 204', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
@@ -275,18 +423,27 @@ class OutboundX12Controller
     {
         try {
             $validated = $request->validate([
-                'asn_number' => 'required|string',
-                'po_number' => 'required|string',
-                'po_date' => 'required|date',
-                'manufacturer_id' => 'required|string',
-                'ship_date' => 'required|date',
-                'ship_from_address' => 'required|array',
-                'ship_to_address' => 'required|array',
-                'boxes' => 'required|array',
+                'asn_number'                           => 'required|string',
+                'po_number'                            => 'required|string',
+                'po_date'                              => 'required|date',
+                'manufacturer_id'                      => 'required|string',
+                'ship_date'                            => 'required|date',
+                'ship_from_address'                    => 'required|array',
+                'ship_to_address'                      => 'required|array',
+                'boxes'                                => 'required|array',
+                'boxes.*.box_number'                   => 'nullable|string',
+                'boxes.*.weight'                       => 'nullable|numeric',
+                'boxes.*.weight_uom'                   => 'nullable|string',
+                'boxes.*.line_items'                   => 'nullable|array',
+                'boxes.*.line_items.*.line_number'     => 'nullable|string',
+                'boxes.*.line_items.*.part_number'     => 'nullable|string',
+                'boxes.*.line_items.*.shipped_quantity'=> 'nullable|numeric',
+                'boxes.*.line_items.*.quantity_uom'    => 'nullable|string',
+                'carrier_code'                         => 'nullable|string',
+                'total_weight'                         => 'nullable|numeric',
             ]);
 
-            // Build DTO
-            $dto = new \App\DTOs\Edi\Edi856AdvanceShipNoticeDto(
+            $dto = new Edi856AdvanceShipNoticeDto(
                 controlNumber: uniqid('PH856_'),
                 asnNumber: $validated['asn_number'],
                 poNumber: $validated['po_number'],
@@ -295,10 +452,11 @@ class OutboundX12Controller
                 shipDate: $validated['ship_date'],
                 shipFromAddress: $validated['ship_from_address'],
                 shipToAddress: $validated['ship_to_address'],
+                carrierCode: $validated['carrier_code'] ?? null,
+                totalWeight: isset($validated['total_weight']) ? (float)$validated['total_weight'] : null,
             );
 
-            // Add boxes and line items
-            // (Implementation depends on boxes/line items data structure)
+            $this->attachBoxes($dto, $validated['boxes']);
 
             // Generate X12 string
             $x12Payload = $this->edi856Generator->generate($dto);
@@ -320,9 +478,16 @@ class OutboundX12Controller
                 'status' => $transaction->status,
             ], $transaction->status === 'SENT' ? Response::HTTP_OK : Response::HTTP_ACCEPTED);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error'   => self::VALIDATION_FAILED,
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
         } catch (\Exception $e) {
             Log::error('Error generating/sending EDI 856', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
@@ -369,13 +534,13 @@ class OutboundX12Controller
             // Add line items
             foreach ($validated['line_items'] as $lineItem) {
                 $dto->addLineItem(new \App\DTOs\Edi\Edi810LineItemDto(
-                    lineNumber: $lineItem['line_number'] ?? '0',
-                    poLineNumber: $lineItem['po_line_number'] ?? '0',
-                    partNumber: $lineItem['part_number'],
-                    partDescription: $lineItem['part_description'],
-                    invoicedQuantity: (float)$lineItem['invoiced_quantity'],
-                    quantityUom: $lineItem['quantity_uom'] ?? 'EA',
-                    unitPrice: (float)$lineItem['unit_price'],
+                    lineNumber:       $lineItem['line_number']       ?? '0',
+                    poLineNumber:     $lineItem['po_line_number']     ?? '0',
+                    partNumber:       $lineItem['part_number']        ?? '',
+                    partDescription:  $lineItem['part_description']   ?? '',
+                    invoicedQuantity: (float)($lineItem['invoiced_quantity'] ?? 0),
+                    quantityUom:      $lineItem['quantity_uom']       ?? 'EA',
+                    unitPrice:        (float)($lineItem['unit_price'] ?? 0),
                 ));
             }
 
@@ -402,9 +567,16 @@ class OutboundX12Controller
                 'status' => $transaction->status,
             ], $transaction->status === 'SENT' ? Response::HTTP_OK : Response::HTTP_ACCEPTED);
 
-        } catch (\Exception $e) {
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error'   => self::VALIDATION_FAILED,
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\Throwable $e) {
             Log::error('Error generating/sending EDI 810', [
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
@@ -453,6 +625,53 @@ class OutboundX12Controller
     }
 
     /**
+     * Relay an outbound EDI request to any partner URL server-side (avoids browser CORS).
+     * POST /api/edi/relay
+     *
+     * Body: { url, method, headers, body }
+     */
+    public function relay(Request $request)
+    {
+        $validated = $request->validate([
+            'url'     => 'required|string',
+            'method'  => 'required|in:GET,POST,PUT,DELETE,PATCH',
+            'headers' => 'nullable|array',
+            'body'    => 'nullable|string',
+        ]);
+
+        try {
+            $headers     = $validated['headers'] ?? [];
+            $contentType = $headers['Content-Type'] ?? $headers['content-type'] ?? 'application/json';
+            $method      = strtolower($validated['method']);
+            $url         = $validated['url'];
+            $body        = $validated['body'] ?? null;
+
+            $http = \Illuminate\Support\Facades\Http::withHeaders($headers)->timeout(30);
+
+            $response = ($method === 'get')
+                ? $http->get($url)
+                : $http->withBody($body ?? '', $contentType)->{$method}($url);
+
+            Log::info('EDI relay forwarded', [
+                'url'    => $url,
+                'method' => strtoupper($method),
+                'status' => $response->status(),
+            ]);
+
+            return response()->json([
+                'status' => $response->status(),
+                'body'   => $response->body(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('EDI relay failed', ['url' => $validated['url'], 'error' => $e->getMessage()]);
+            return response()->json([
+                'error'   => 'Relay failed',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Retry failed transmission
      * POST /api/edi/transmissions/{transactionId}/retry
      */
@@ -483,4 +702,308 @@ class OutboundX12Controller
             ], Response::HTTP_NOT_FOUND);
         }
     }
+
+    /**
+     * Preview X12 format for EDI 204 without sending
+     * POST /api/edi/204/preview
+     */
+    public function preview204(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'load_tender_id'              => 'required|string',
+                'shipper_company_name'        => 'required|string',
+                'shipper_address'             => 'required|array',
+                'carrier_code'               => 'required|string',
+                'ship_to_address'            => 'required|array',
+                'shipments'                  => 'required|array|min:1',
+                'shipments.*.shipment_number' => 'required|string',
+                'shipments.*.weight'          => 'nullable|numeric',
+                'shipments.*.weight_uom'      => 'nullable|string',
+                'shipments.*.commodity'       => 'nullable|string',
+                'pickup_date'                => 'nullable|date',
+                'delivery_date'              => 'nullable|date',
+            ]);
+
+            $dto = new \App\DTOs\Edi\Edi204MotorCarrierLoadTenderDto(
+                controlNumber:      uniqid('PREV204_'),
+                loadTenderId:       $validated['load_tender_id'],
+                shipperCompanyName: $validated['shipper_company_name'],
+                shipperAddress:     $validated['shipper_address'],
+                carrierCode:        $validated['carrier_code'],
+                shipToAddress:      $validated['ship_to_address'],
+                pickupDate:         $validated['pickup_date'] ?? date('Y-m-d'),
+                deliveryDate:       $validated['delivery_date'] ?? null,
+            );
+
+            foreach ($validated['shipments'] as $s) {
+                $dto->addShipment(new \App\DTOs\Edi\Edi204ShipmentDto(
+                    shipmentNumber: $s['shipment_number'],
+                    shipmentType:   $s['shipment_type'] ?? 'TL',
+                    weight:         isset($s['weight']) ? (float)$s['weight'] : null,
+                    weightUom:      $s['weight_uom'] ?? 'LB',
+                    commodity:      $s['commodity'] ?? null,
+                ));
+            }
+
+            $x12Payload = $this->edi204Generator->generate($dto);
+
+            return response()->json([
+                'x12_payload' => $x12Payload,
+                'message' => 'X12 204 preview generated (not sent)',
+            ], Response::HTTP_OK);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error' => self::VALIDATION_FAILED,
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'error'   => self::VALIDATION_FAILED,
+                'message' => $e->getMessage(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\Exception $e) {
+            Log::error('Error previewing EDI 204', ['error' => $e->getMessage()]);
+            return response()->json([
+                'error' => 'Preview failed',
+                'message' => 'Failed to generate EDI 204 preview',
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Preview X12 format for EDI 856 without sending
+     * POST /api/edi/856/preview
+     */
+    public function preview856(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'asn_number'                           => 'required|string',
+                'po_number'                            => 'required|string',
+                'po_date'                              => 'required|date',
+                'manufacturer_id'                      => 'required|string',
+                'ship_date'                            => 'required|date',
+                'ship_from_address'                    => 'required|array',
+                'ship_to_address'                      => 'required|array',
+                'boxes'                                => 'required|array',
+                'boxes.*.box_number'                   => 'nullable|string',
+                'boxes.*.weight'                       => 'nullable|numeric',
+                'boxes.*.weight_uom'                   => 'nullable|string',
+                'boxes.*.line_items'                   => 'nullable|array',
+                'boxes.*.line_items.*.line_number'     => 'nullable|string',
+                'boxes.*.line_items.*.part_number'     => 'nullable|string',
+                'boxes.*.line_items.*.shipped_quantity'=> 'nullable|numeric',
+                'boxes.*.line_items.*.quantity_uom'    => 'nullable|string',
+                'carrier_code'                         => 'nullable|string',
+                'total_weight'                         => 'nullable|numeric',
+            ]);
+
+            $dto = new Edi856AdvanceShipNoticeDto(
+                controlNumber:   uniqid('PREV856_'),
+                asnNumber:       $validated['asn_number'],
+                poNumber:        $validated['po_number'],
+                poDate:          $validated['po_date'],
+                manufacturerId:  $validated['manufacturer_id'],
+                shipDate:        $validated['ship_date'],
+                shipFromAddress: $validated['ship_from_address'],
+                shipToAddress:   $validated['ship_to_address'],
+                carrierCode:     $validated['carrier_code'] ?? null,
+                totalWeight:     isset($validated['total_weight']) ? (float)$validated['total_weight'] : null,
+            );
+
+            $this->attachBoxes($dto, $validated['boxes']);
+
+            $x12Payload = $this->edi856Generator->generate($dto);
+
+            return response()->json([
+                'x12_payload' => $x12Payload,
+                'message' => 'X12 856 preview generated (not sent)',
+            ], Response::HTTP_OK);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error' => self::VALIDATION_FAILED,
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\Exception $e) {
+            Log::error('Error previewing EDI 856', ['error' => $e->getMessage()]);
+            return response()->json([
+                'error' => 'Preview failed',
+                'message' => 'Failed to generate EDI 856 preview',
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Preview X12 format for EDI 810 without sending
+     * POST /api/edi/810/preview
+     */
+    public function preview810(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'invoice_number'    => 'required|string',
+                'invoice_date'      => 'required|date',
+                'po_number'         => 'required|string',
+                'po_date'           => 'required|date',
+                'manufacturer_id'   => 'required|string',
+                'bill_to_name'      => 'required|string',
+                'bill_to_address'   => 'required|array',
+                'ship_from_address' => 'required|array',
+                'line_items'        => 'required|array',
+                'total_amount'      => 'required|numeric',
+            ]);
+
+            $dto = new \App\DTOs\Edi\Edi810InvoiceDto(
+                controlNumber:    uniqid('PREV810_'),
+                invoiceNumber:    $validated['invoice_number'],
+                invoiceDate:      $validated['invoice_date'],
+                poNumber:         $validated['po_number'],
+                poDate:           $validated['po_date'],
+                manufacturerId:   $validated['manufacturer_id'],
+                billToName:       $validated['bill_to_name'],
+                billToAddress:    $validated['bill_to_address'],
+                shipFromAddress:  $validated['ship_from_address'],
+                totalAmount:      (float)$validated['total_amount'],
+            );
+
+            foreach ($validated['line_items'] as $lineItem) {
+                $dto->addLineItem(new \App\DTOs\Edi\Edi810LineItemDto(
+                    lineNumber:       $lineItem['line_number']      ?? '0',
+                    poLineNumber:     $lineItem['po_line_number']   ?? '0',
+                    partNumber:       $lineItem['part_number']      ?? '',
+                    partDescription:  $lineItem['part_description'] ?? '',
+                    invoicedQuantity: (float)($lineItem['invoiced_quantity'] ?? 0),
+                    quantityUom:      $lineItem['quantity_uom']     ?? 'EA',
+                    unitPrice:        (float)($lineItem['unit_price'] ?? 0),
+                ));
+            }
+
+            $dto->calculateTotals();
+            $x12Payload = $this->edi810Generator->generate($dto);
+
+            return response()->json([
+                'x12_payload' => $x12Payload,
+                'message' => 'X12 810 preview generated (not sent)',
+            ], Response::HTTP_OK);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'error' => self::VALIDATION_FAILED,
+                'message' => $e->errors(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        } catch (\Throwable $e) {
+            Log::error('Error previewing EDI 810', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json([
+                'error' => 'Preview failed',
+                'message' => $e->getMessage(),
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Generate and send EDI 846 (Inventory Advice) to Manufacturer
+     * POST /api/edi/846/send
+     *
+     * Request body:
+     * {
+     *   "reference_number": "INVEN-2026-05-24-001",  // optional
+     *   "warehouse_name":   "PHILHARVEST WAREHOUSE",  // optional
+     *   "vendor_id":        "PHILHARVEST",            // optional
+     *   "items": [
+     *     { "sku": "SKU-001", "upc": "123456789012", "quantity": 150, "uom": "EA" }
+     *   ]
+     * }
+     */
+    public function send846(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'items'             => 'required|array|min:1',
+                'items.*.sku'       => 'required|string',
+                'items.*.quantity'  => 'required|integer|min:0',
+                'items.*.uom'       => 'nullable|string',
+                'items.*.upc'       => 'nullable|string',
+                'reference_number'  => 'nullable|string',
+                'warehouse_name'    => 'nullable|string',
+                'vendor_id'         => 'nullable|string',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'error' => self::VALIDATION_FAILED,
+                    'message' => $validator->errors(),
+                ], Response::HTTP_UNPROCESSABLE_ENTITY);
+            }
+
+            $data846 = $request->all();
+
+            // Enforce contract exclusions: strip any items the buyer is not contracted
+            // to receive before the X12 is generated.
+            $buyerPartner = TradingPartner::where('edi_role', 'BY')
+                ->where(fn ($q) => $q->whereNull('is_archived')->orWhere('is_archived', false))
+                ->first();
+            if ($buyerPartner && !empty($buyerPartner->excluded_skus)) {
+                $excludedSkus = array_map(fn ($s) => strtoupper(trim($s)), $buyerPartner->excluded_skus);
+                $data846['items'] = array_values(array_filter(
+                    $data846['items'],
+                    fn ($item) => !in_array(strtoupper(trim($item['sku'] ?? '')), $excludedSkus)
+                ));
+                if (empty($data846['items'])) {
+                    return response()->json([
+                        'error'   => 'No eligible items',
+                        'message' => 'All items are excluded by the buyer contract. No 846 sent.',
+                    ], Response::HTTP_UNPROCESSABLE_ENTITY);
+                }
+            }
+
+            $x12 = $this->edi846Generator->generate($data846);
+            $transaction = $this->transmissionService->send846($x12);
+
+            return response()->json([
+                'transaction_id' => $transaction->id,
+                'control_number' => $transaction->control_number,
+                'status'         => $transaction->status,
+            ], Response::HTTP_ACCEPTED);
+
+        } catch (\Exception $e) {
+            Log::error('846 generation failed: ' . $e->getMessage());
+            return response()->json([
+                'error'   => 'Send failed',
+                'message' => $e->getMessage(),
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    private function attachBoxes(Edi856AdvanceShipNoticeDto $dto, array $boxes): void
+    {
+        foreach ($boxes as $idx => $boxData) {
+            $box = new Edi856BoxDto(
+                boxNumber: $boxData['box_number'] ?? (string)($idx + 1),
+                weight: isset($boxData['weight']) ? (float)$boxData['weight'] : null,
+                weightUom: $boxData['weight_uom'] ?? 'LB',
+            );
+            foreach ($boxData['line_items'] ?? [] as $liIdx => $liData) {
+                $box->addLineItem(new Edi856BoxLineItemDto(
+                    lineNumber: $liData['line_number'] ?? (string)($liIdx + 1),
+                    poLineNumber: $liData['line_number'] ?? (string)($liIdx + 1),
+                    partNumber: $liData['part_number'] ?? '',
+                    partDescription: $liData['part_description'] ?? '',
+                    shippedQuantity: (float)($liData['shipped_quantity'] ?? 0),
+                    quantityUom: $liData['quantity_uom'] ?? 'EA',
+                ));
+            }
+            $dto->addBox($box);
+        }
+    }
 }
+

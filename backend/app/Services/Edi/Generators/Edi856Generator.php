@@ -7,8 +7,9 @@ use Illuminate\Support\Facades\Config;
 
 /**
  * X12 856 (Advance Ship Notice / ASN) Generator
- * 
- * Generates raw X12 EDI 856 strings for manufacturers
+ *
+ * Structure: ISA/GS > ST > BSN > HL*S (shipment) > TD5/DTM/W12/PKG/N1*SF/N1*ST
+ *            > HL*O (order) > PRF > LIN/SN1 pairs > CTT > SE > GE > IEA
  */
 class Edi856Generator
 {
@@ -21,86 +22,73 @@ class Edi856Generator
         $this->controlNumber = $this->generateControlNumber();
     }
 
-    /**
-     * Generate X12 856 from DTO
-     */
     public function generate(Edi856AdvanceShipNoticeDto $dto): string
     {
         $this->controlNumber = $this->generateControlNumber();
         $segments = [];
+        $fs = $this->fieldSeparator;
 
-        // ISA - Interchange Control Header
         $segments[] = $this->buildISA();
-
-        // GS - Functional Group Header
         $segments[] = $this->buildGS();
-
-        // ST - Transaction Set Header
         $segments[] = $this->buildST();
-
-        // BSN - Beginning Segment
         $segments[] = $this->buildBSN($dto);
 
-        // DTM - Date/Time Reference
-        $segments[] = "DTM{$this->fieldSeparator}011{$this->fieldSeparator}" . date('Ymd');
+        // HL*1**S — Shipment level
+        $segments[] = "HL{$fs}1{$fs}{$fs}S";
 
-        // N1 - Name Loop (Shipper)
-        $segments[] = $this->buildN1Shipper();
-        if (!empty($dto->shipFromAddress)) {
-            $segments[] = $this->buildN3ShipFrom($dto->shipFromAddress);
-            $segments[] = $this->buildN4ShipFrom($dto->shipFromAddress);
+        // TD5 — carrier (TD5-04=ZZ, TD5-05=carrier name)
+        $carrier = $dto->carrierCode ?? '';
+        $segments[] = "TD5{$fs}{$fs}{$fs}{$fs}ZZ{$fs}{$carrier}";
+
+        // DTM*011 — ship date
+        $segments[] = "DTM{$fs}011{$fs}" . $this->formatDateForX12($dto->shipDate ?? null);
+
+        // W12 — gross weight (only when provided)
+        if ($dto->totalWeight !== null && $dto->totalWeight > 0) {
+            $segments[] = "W12{$fs}LB{$fs}" . number_format((float)$dto->totalWeight, 0, '.', '');
         }
 
-        // N1 - Ship To
-        $segments[] = "N1{$this->fieldSeparator}ST{$this->fieldSeparator}" . ($dto->shipToAddress['company_name'] ?? 'ShipTo');
-        if (!empty($dto->shipToAddress)) {
-            $segments[] = $this->buildN3ShipTo($dto->shipToAddress);
-            $segments[] = $this->buildN4ShipTo($dto->shipToAddress);
-        }
+        // PKG — package count
+        $pkgCount = count($dto->boxes) ?: 1;
+        $segments[] = "PKG{$fs}F{$fs}{$pkgCount}";
 
-        // HL - Hierarchy Loop
-        $hlNum = 1;
+        // N1*SF — Ship From (PhilHarvest)
+        $senderId = Config::get('edi-partners.manufacturer.x12.sender_id',
+            Config::get('edi-partners.global.sender_id', 'PHILHARVEST'));
+        $segments[] = "N1{$fs}SF{$fs}{$senderId}";
+        array_push($segments, ...$this->buildAddressBlocks($dto->shipFromAddress));
+
+        // N1*ST — Ship To
+        $shipToName = trim($dto->shipToAddress['company_name'] ?? ($dto->manufacturerId ?? 'ShipTo'));
+        $segments[] = "N1{$fs}ST{$fs}{$shipToName}";
+        array_push($segments, ...$this->buildAddressBlocks($dto->shipToAddress));
+
+        // HL*2*1*O — Order level
+        $segments[] = "HL{$fs}2{$fs}1{$fs}O";
+        $segments[] = "PRF{$fs}{$dto->poNumber}";
+
+        // LIN + SN1 pairs — flatten all box line items
+        $lineSeq = 0;
         foreach ($dto->boxes as $box) {
-            // HL segment for shipment
-            $segments[] = "HL{$this->fieldSeparator}{$hlNum}{$this->fieldSeparator}{$this->fieldSeparator}O";
-            $hlNum++;
-
-            // DTM for box
-            $segments[] = "DTM{$this->fieldSeparator}011{$this->fieldSeparator}" . date('Ymd');
-
-            // MAN - Marks and Numbers
-            $segments[] = "MAN{$this->fieldSeparator}92{$this->fieldSeparator}{$box->boxNumber}";
-
-            // HL for package
-            $parentHl = $hlNum - 1;
-            $segments[] = "HL{$this->fieldSeparator}{$hlNum}{$this->fieldSeparator}{$parentHl}{$this->fieldSeparator}P";
-            $hlNum++;
-
-            // PO1 - Line items in box
             foreach ($box->lineItems as $lineItem) {
-                $segments[] = $this->buildPO1($lineItem);
+                $lineSeq++;
+                $uom = strtoupper($lineItem->quantityUom);
+                $segments[] = "LIN{$fs}{$lineSeq}{$fs}VN{$fs}{$lineItem->partNumber}";
+                $segments[] = "SN1{$fs}{$fs}{$lineItem->shippedQuantity}{$fs}{$uom}";
             }
         }
 
-        // CTT - Transaction Total
-        $segments[] = "CTT{$this->fieldSeparator}1";
+        $segments[] = "CTT{$fs}{$lineSeq}";
 
-        // SE - Transaction Set Trailer
-        $count = count($segments) + 1;
-        $segments[] = "SE{$this->fieldSeparator}{$count}{$this->fieldSeparator}0001";
+        // SE: -2 for ISA+GS, +1 for SE itself = net -1
+        $seCount = count($segments) - 1;
+        $segments[] = "SE{$fs}{$seCount}{$fs}0001";
+        $segments[] = "GE{$fs}1{$fs}1";
+        $segments[] = "IEA{$fs}1{$fs}{$this->controlNumber}";
 
-        // GE - Functional Group Trailer
-        $segments[] = "GE{$this->fieldSeparator}1{$this->fieldSeparator}1";
-
-        // IEA - Interchange Control Trailer
-        $segments[] = "IEA{$this->fieldSeparator}1{$this->fieldSeparator}{$this->controlNumber}";
-
-        return implode($this->segmentTerminator, $segments) . $this->segmentTerminator;
+        return implode($this->segmentTerminator . "\n", $segments) . $this->segmentTerminator . "\n";
     }
 
-    /**
-     * Build ISA segment
-     */
     private function buildISA(): string
     {
         $partnerConfig = Config::get('edi-partners.manufacturer', []);
@@ -114,127 +102,65 @@ class Edi856Generator
         $version = $this->formatIsaVersion($x12Config['version'] ?? Config::get('edi-partners.global.x12_version', '005010'));
 
         return implode($this->fieldSeparator, [
-            'ISA',
-            '00',
-            str_repeat(' ', 10),
-            '00',
-            str_repeat(' ', 10),
-            $senderQual,
-            $senderId,
-            $receiverQual,
-            $receiverId,
-            $date,
-            $time,
-            '^',
-            $version,
-            $this->controlNumber,
-            '0',
-            'P',
-            ':',
+            'ISA', '00', str_repeat(' ', 10), '00', str_repeat(' ', 10),
+            $senderQual, $senderId, $receiverQual, $receiverId,
+            $date, $time, '^', $version, $this->controlNumber, '0', 'P', ':',
         ]);
     }
 
-    /**
-     * Build GS segment
-     */
     private function buildGS(): string
     {
         $partnerConfig = Config::get('edi-partners.manufacturer', []);
         $x12Config = $partnerConfig['x12'] ?? [];
         $senderId = $x12Config['sender_id'] ?? Config::get('edi-partners.global.sender_id', 'PHILHARVEST');
         $receiverId = $x12Config['receiver_id'] ?? ($partnerConfig['code'] ?? 'SERMACROPS');
-        $date = date('Ymd');
-        $time = date('His');
-        return "GS{$this->fieldSeparator}SH{$this->fieldSeparator}{$senderId}{$this->fieldSeparator}{$receiverId}{$this->fieldSeparator}{$date}{$this->fieldSeparator}{$time}{$this->fieldSeparator}1{$this->fieldSeparator}X{$this->fieldSeparator}005010";
+        $fs = $this->fieldSeparator;
+        return "GS{$fs}SH{$fs}{$senderId}{$fs}{$receiverId}{$fs}" . date('Ymd') . "{$fs}" . date('His') . "{$fs}1{$fs}X{$fs}005010";
     }
 
-    /**
-     * Build ST segment
-     */
     private function buildST(): string
     {
         return "ST{$this->fieldSeparator}856{$this->fieldSeparator}0001";
     }
 
-    /**
-     * Build BSN segment (Beginning Segment)
-     */
     private function buildBSN(Edi856AdvanceShipNoticeDto $dto): string
     {
+        $fs = $this->fieldSeparator;
         $date = $this->formatDateForX12($dto->shipDate ?? null);
-        $time = date('His');
-        return "BSN{$this->fieldSeparator}92{$this->fieldSeparator}{$dto->asnNumber}{$this->fieldSeparator}{$date}{$this->fieldSeparator}{$time}";
+        $time = date('Hi');
+        return "BSN{$fs}00{$fs}{$dto->asnNumber}{$fs}{$date}{$fs}{$time}";
     }
 
-    /**
-     * Build N1 Shipper
-     */
-    private function buildN1Shipper(): string
+    private function buildAddressBlocks(array $address): array
     {
-        $senderId = Config::get('edi-partners.manufacturer.x12.sender_id', Config::get('edi-partners.global.sender_id', 'PHILHARVEST'));
-        return "N1{$this->fieldSeparator}SH{$this->fieldSeparator}{$senderId}";
+        $segs = [];
+        $fs = $this->fieldSeparator;
+
+        $street = trim($address['street'] ?? '');
+        $street2 = trim($address['address_line_2'] ?? '');
+        if ($street !== '') {
+            $n3 = "N3{$fs}{$street}";
+            if ($street2 !== '') {
+                $n3 .= "{$fs}{$street2}";
+            }
+            $segs[] = $n3;
+        }
+
+        $city    = trim($address['city']        ?? '');
+        $state   = trim($address['state']       ?? '');
+        $postal  = trim($address['postal_code'] ?? '');
+        $country = trim($address['country']     ?? '');
+        if ($city !== '' || $state !== '' || $postal !== '' || $country !== '') {
+            $segs[] = "N4{$fs}{$city}{$fs}{$state}{$fs}{$postal}{$fs}{$country}";
+        }
+
+        return $segs;
     }
 
-    /**
-     * Build N3 Ship From
-     */
-    private function buildN3ShipFrom(array $address): string
-    {
-        $street = $address['street'] ?? '';
-        return "N3{$this->fieldSeparator}{$street}";
-    }
-
-    /**
-     * Build N4 Ship From
-     */
-    private function buildN4ShipFrom(array $address): string
-    {
-        $city = $address['city'] ?? '';
-        $state = $address['state'] ?? '';
-        $zip = $address['zip'] ?? '';
-        return "N4{$this->fieldSeparator}{$city}{$this->fieldSeparator}{$state}{$this->fieldSeparator}{$zip}";
-    }
-
-    /**
-     * Build N3 Ship To
-     */
-    private function buildN3ShipTo(array $address): string
-    {
-        $street = $address['street'] ?? '';
-        return "N3{$this->fieldSeparator}{$street}";
-    }
-
-    /**
-     * Build N4 Ship To
-     */
-    private function buildN4ShipTo(array $address): string
-    {
-        $city = $address['city'] ?? '';
-        $state = $address['state'] ?? '';
-        $zip = $address['zip'] ?? '';
-        return "N4{$this->fieldSeparator}{$city}{$this->fieldSeparator}{$state}{$this->fieldSeparator}{$zip}";
-    }
-
-    /**
-     * Build PO1 segment (Line Item)
-     */
-    private function buildPO1($lineItem): string
-    {
-        $quantity = $lineItem->shippedQuantity;
-        $uom = $lineItem->quantityUom;
-        $partNum = $lineItem->partNumber;
-
-        return "PO1{$this->fieldSeparator}{$lineItem->lineNumber}{$this->fieldSeparator}{$quantity}{$this->fieldSeparator}{$uom}{$this->fieldSeparator}{$this->fieldSeparator}{$this->fieldSeparator}{$partNum}";
-    }
-
-    /**
-     * Generate control number
-     */
     private function generateControlNumber(): string
     {
         $config = Config::get('edi-partners.global');
         $padding = $config['control_number_padding'] ?? 9;
-
         $timestamp = (int)(microtime(true) * 1000) % (10 ** $padding);
         return str_pad((string) $timestamp, $padding, '0', STR_PAD_LEFT);
     }
@@ -244,18 +170,16 @@ class Edi856Generator
         if (empty($date)) {
             return date('Ymd');
         }
-
         $timestamp = strtotime($date);
         if ($timestamp === false) {
-            return preg_replace('/[^0-9]/', '', $date);
+            return preg_replace('/\D/', '', $date);
         }
-
         return date('Ymd', $timestamp);
     }
 
     private function formatIsaVersion(string $version): string
     {
-        $normalized = preg_replace('/[^0-9]/', '', $version);
+        $normalized = preg_replace('/\D/', '', $version);
         return substr(str_pad($normalized ?: '005010', 5, '0', STR_PAD_LEFT), 0, 5);
     }
 }

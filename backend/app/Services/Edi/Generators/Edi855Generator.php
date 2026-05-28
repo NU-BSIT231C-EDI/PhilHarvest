@@ -8,19 +8,17 @@ use Illuminate\Support\Facades\Config;
 
 /**
  * X12 855 (Purchase Order Acknowledgment) Generator
- * 
+ *
  * Generates raw X12 EDI 855 strings from DTOs
  */
 class Edi855Generator
 {
     private string $segmentTerminator = '~';
     private string $fieldSeparator = '*';
-    private string $componentSeparator = '^';
     private string $controlNumber = '001';
 
     public function __construct()
     {
-        // Initialize control number
         $this->controlNumber = $this->generateControlNumber();
     }
 
@@ -32,53 +30,50 @@ class Edi855Generator
         $this->controlNumber = $this->generateControlNumber();
         $segments = [];
 
-        // ISA - Interchange Control Header
         $segments[] = $this->buildISA();
+        $segments[] = $this->buildGS();
+        $segments[] = $this->buildST();
+        $segments[] = $this->buildBAK($dto);
 
-        // GS - Functional Group Header
-        $segments[] = $this->buildGS('855');
-
-        // ST - Transaction Set Header
-        $segments[] = $this->buildST('855');
-
-        // BEG - Beginning of Purchase Order Acknowledgment
-        $segments[] = $this->buildBEG($dto);
-
-        // CUR - Currency (if not USD)
         if ($dto->poDate) {
             $segments[] = $this->buildDTM($dto);
         }
 
-        // N1 - Name Loop
-        $segments[] = $this->buildN1Manufacturer($dto);
-        $segments[] = $this->buildN1Buyer($dto);
+        // NTE — rejection reason delivered to manufacturer in the X12 body
+        if (!empty($dto->rejectionReason)) {
+            $fs = $this->fieldSeparator;
+            $segments[] = "NTE{$fs}ZZ{$fs}" . substr($dto->rejectionReason, 0, 80);
+        }
 
-        // PO1 - Line Item Detail (Baseline Item Data)
+        // DTM*010 — promised/estimated ship date
+        if (!empty($dto->estimatedShipDate)) {
+            $fs = $this->fieldSeparator;
+            $segments[] = "DTM{$fs}010{$fs}" . $this->formatDateForX12($dto->estimatedShipDate);
+        }
+
+        // N1 name loops with N3/N4 address detail when available
+        array_push($segments, ...$this->buildN1ManufacturerLoop($dto));
+        array_push($segments, ...$this->buildN1SellerLoop($dto));
+
+        // PO1 / ACK pairs
         foreach ($dto->lineAcknowledgments as $lineAck) {
-            foreach ($this->buildLineAcknowledgmentSegments($lineAck) as $lineSegment) {
-                $segments[] = $lineSegment;
+            foreach ($this->buildLineAcknowledgmentSegments($lineAck) as $seg) {
+                $segments[] = $seg;
             }
         }
 
-        // CTT - Transaction Total
         $segments[] = $this->buildCTT($dto);
 
-        // SE - Transaction Set Trailer
-        $count = count($segments) + 1;  // +1 for SE itself
-        $segments[] = "SE{$this->fieldSeparator}$count{$this->fieldSeparator}0001";
-
-        // GE - Functional Group Trailer
+        // SE counts segments from ST through SE inclusive.
+        // ISA and GS (indices 0-1) are outside the transaction set, so subtract them.
+        $seCount = count($segments) - 1;  // -2 for ISA+GS, +1 for SE itself = -1
+        $segments[] = "SE{$this->fieldSeparator}{$seCount}{$this->fieldSeparator}0001";
         $segments[] = "GE{$this->fieldSeparator}1{$this->fieldSeparator}1";
-
-        // IEA - Interchange Control Trailer
         $segments[] = "IEA{$this->fieldSeparator}1{$this->fieldSeparator}{$this->controlNumber}";
 
-        return implode($this->segmentTerminator, $segments) . $this->segmentTerminator;
+        return implode($this->segmentTerminator . "\n", $segments) . $this->segmentTerminator . "\n";
     }
 
-    /**
-     * Build ISA segment (Interchange Control Header)
-     */
     private function buildISA(): string
     {
         $partnerConfig = Config::get('edi-partners.manufacturer', []);
@@ -90,94 +85,98 @@ class Edi855Generator
         $date = date('ymd');
         $time = date('Hi');
         $version = $this->formatIsaVersion($x12Config['version'] ?? Config::get('edi-partners.global.x12_version', '005010'));
-        $elements = [
-            'ISA',
-            '00',
-            str_repeat(' ', 10),
-            '00',
-            str_repeat(' ', 10),
-            $senderQual,
-            $senderId,
-            $receiverQual,
-            $receiverId,
-            $date,
-            $time,
-            '^',
-            $version,
-            $this->controlNumber,
-            '0',
-            'P',
-            ':',
-        ];
 
-        return implode($this->fieldSeparator, $elements);
+        return implode($this->fieldSeparator, [
+            'ISA', '00', str_repeat(' ', 10), '00', str_repeat(' ', 10),
+            $senderQual, $senderId, $receiverQual, $receiverId,
+            $date, $time, '^', $version, $this->controlNumber, '0', 'P', ':',
+        ]);
     }
 
-    /**
-     * Build GS segment (Functional Group Header)
-     */
-    private function buildGS(string $transactionCode): string
+    private function buildGS(): string
     {
         $partnerConfig = Config::get('edi-partners.manufacturer', []);
         $x12Config = $partnerConfig['x12'] ?? [];
         $senderId = $x12Config['sender_id'] ?? Config::get('edi-partners.global.sender_id', 'PHILHARVEST');
         $receiverId = $x12Config['receiver_id'] ?? ($partnerConfig['code'] ?? 'SERMACROPS');
-        $date = date('Ymd');
-        $time = date('His');
-        return "GS{$this->fieldSeparator}PO{$this->fieldSeparator}{$senderId}{$this->fieldSeparator}{$receiverId}{$this->fieldSeparator}{$date}{$this->fieldSeparator}{$time}{$this->fieldSeparator}1{$this->fieldSeparator}X{$this->fieldSeparator}005010";
+        $fs = $this->fieldSeparator;
+        return "GS{$fs}PR{$fs}{$senderId}{$fs}{$receiverId}{$fs}" . date('Ymd') . "{$fs}" . date('His') . "{$fs}1{$fs}X{$fs}005010";
+    }
+
+    private function buildST(): string
+    {
+        return "ST{$this->fieldSeparator}855{$this->fieldSeparator}0001";
     }
 
     /**
-     * Build ST segment (Transaction Set Header)
+     * BAK01=00 (Original), BAK02=acknowledgment type, BAK03=PO number, BAK04=date
      */
-    private function buildST(string $transactionCode): string
+    private function buildBAK(Edi855PurchaseOrderAckDto $dto): string
     {
-        return "ST{$this->fieldSeparator}{$transactionCode}{$this->fieldSeparator}0001";
-    }
-
-    /**
-     * Build BEG segment (Beginning of Purchase Order Acknowledgment)
-     */
-    private function buildBEG(Edi855PurchaseOrderAckDto $dto): string
-    {
+        $fs = $this->fieldSeparator;
         $poDate = $this->formatDateForX12($dto->poDate);
-        return "BEG{$this->fieldSeparator}{$dto->acknowledgmentCode}{$this->fieldSeparator}04{$this->fieldSeparator}{$dto->poNumber}{$this->fieldSeparator}{$poDate}";
+        return "BAK{$fs}00{$fs}{$dto->acknowledgmentCode}{$fs}{$dto->poNumber}{$fs}{$poDate}";
     }
 
-    /**
-     * Build DTM segment (Date/Time Reference)
-     */
     private function buildDTM(Edi855PurchaseOrderAckDto $dto): string
     {
+        $fs = $this->fieldSeparator;
         $date = $this->formatDateForX12($dto->acknowledgedDate);
-        return "DTM{$this->fieldSeparator}137{$this->fieldSeparator}{$date}{$this->fieldSeparator}102";
+        return "DTM{$fs}137{$fs}{$date}{$fs}102";
     }
 
     /**
-     * Build N1 segment for Manufacturer
+     * N1*MF loop (manufacturer) with optional N3/N4 address segments
      */
-    private function buildN1Manufacturer(Edi855PurchaseOrderAckDto $dto): string
+    private function buildN1ManufacturerLoop(Edi855PurchaseOrderAckDto $dto): array
     {
-        return "N1{$this->fieldSeparator}MF{$this->fieldSeparator}{$dto->manufacturerId}";
+        $segs = ["N1{$this->fieldSeparator}BY{$this->fieldSeparator}{$dto->manufacturerId}"];
+        $this->appendAddressSegments($segs, $dto->manufacturerAddress);
+        return $segs;
     }
 
     /**
-     * Build N1 segment for Buyer
+     * N1*SE loop (selling party/us) with optional N3/N4 address segments
      */
-    private function buildN1Buyer(Edi855PurchaseOrderAckDto $dto): string
+    private function buildN1SellerLoop(Edi855PurchaseOrderAckDto $dto): array
     {
         $senderId = Config::get('edi-partners.manufacturer.x12.sender_id', Config::get('edi-partners.global.sender_id', 'PHILHARVEST'));
-        return "N1{$this->fieldSeparator}BY{$this->fieldSeparator}{$senderId}";
+        $segs = ["N1{$this->fieldSeparator}SE{$this->fieldSeparator}{$senderId}"];
+        $this->appendAddressSegments($segs, $dto->sellerAddress);
+        return $segs;
+    }
+
+    private function appendAddressSegments(array &$segs, ?array $address): void
+    {
+        if (empty($address)) {
+            return;
+        }
+        $fs = $this->fieldSeparator;
+        $street = trim($address['street'] ?? '');
+        $street2 = trim($address['address_line_2'] ?? '');
+        if ($street !== '') {
+            $n3 = "N3{$fs}{$street}";
+            if ($street2 !== '') {
+                $n3 .= "{$fs}{$street2}";
+            }
+            $segs[] = $n3;
+        }
+        $city    = trim($address['city']        ?? '');
+        $state   = trim($address['state']       ?? '');
+        $postal  = trim($address['postal_code'] ?? '');
+        $country = trim($address['country']     ?? '');
+        if ($city !== '' || $state !== '' || $postal !== '' || $country !== '') {
+            $segs[] = "N4{$fs}{$city}{$fs}{$state}{$fs}{$postal}{$fs}{$country}";
+        }
     }
 
     /**
-     * Build PO1 segment (Line Item Detail)
+     * PO1 + ACK pair (+ optional DTM) for one line acknowledgment
      */
     private function buildLineAcknowledgmentSegments(Edi855LineAckDto $lineAck): array
     {
         $segments = [];
-
-        $segments[] = "PO1{$this->fieldSeparator}{$lineAck->lineNumber}";
+        $segments[] = $this->buildPO1($lineAck);
         $segments[] = $this->buildACK($lineAck);
 
         if (!empty($lineAck->estimatedDeliveryDate)) {
@@ -188,58 +187,66 @@ class Edi855Generator
     }
 
     /**
-     * Build ACK segment (Line item acknowledgment)
+     * PO1*lineNum*qty*uom*price**VN*partNumber
+     * Price and part are included when present.
      */
+    private function buildPO1(Edi855LineAckDto $lineAck): string
+    {
+        $fs  = $this->fieldSeparator;
+        $qty = $lineAck->acceptedQuantity;
+        $uom = strtoupper($lineAck->quantityUom);
+
+        if (!empty($lineAck->partNumber)) {
+            $price = number_format((float)($lineAck->unitPrice ?? 0), 2, '.', '');
+            return "PO1{$fs}{$lineAck->lineNumber}{$fs}{$qty}{$fs}{$uom}{$fs}{$price}{$fs}{$fs}VN{$fs}{$lineAck->partNumber}";
+        }
+
+        if ($lineAck->unitPrice !== null && $lineAck->unitPrice > 0) {
+            $price = number_format((float)$lineAck->unitPrice, 2, '.', '');
+            return "PO1{$fs}{$lineAck->lineNumber}{$fs}{$qty}{$fs}{$uom}{$fs}{$price}";
+        }
+
+        return "PO1{$fs}{$lineAck->lineNumber}{$fs}{$qty}{$fs}{$uom}";
+    }
+
     private function buildACK(Edi855LineAckDto $lineAck): string
     {
+        $fs  = $this->fieldSeparator;
+        $uom = strtoupper($lineAck->quantityUom);
         $date = !empty($lineAck->estimatedDeliveryDate)
-            ? $this->fieldSeparator . '017' . $this->fieldSeparator . $this->formatDateForX12($lineAck->estimatedDeliveryDate)
+            ? "{$fs}017{$fs}" . $this->formatDateForX12($lineAck->estimatedDeliveryDate)
             : '';
-
-        return "ACK{$this->fieldSeparator}{$lineAck->acknowledgmentCode}{$this->fieldSeparator}{$lineAck->acceptedQuantity}{$this->fieldSeparator}{$lineAck->quantityUom}{$date}";
+        return "ACK{$fs}{$lineAck->acknowledgmentCode}{$fs}{$lineAck->acceptedQuantity}{$fs}{$uom}{$date}";
     }
 
-    /**
-     * Build CTT segment (Transaction Total)
-     */
     private function buildCTT(Edi855PurchaseOrderAckDto $dto): string
     {
-        $count = count($dto->lineAcknowledgments);
-        return "CTT{$this->fieldSeparator}{$count}";
+        return "CTT{$this->fieldSeparator}" . \count($dto->lineAcknowledgments);
     }
 
-    /**
-     * Generate control number
-     */
     private function generateControlNumber(): string
     {
         $config = Config::get('edi-partners.global');
         $padding = $config['control_number_padding'] ?? 9;
-
         $timestamp = (int)(microtime(true) * 1000) % (10 ** $padding);
         return str_pad((string) $timestamp, $padding, '0', STR_PAD_LEFT);
     }
 
-    /**
-     * Format incoming dates to X12 CCYYMMDD format
-     */
     private function formatDateForX12(?string $date): string
     {
         if (empty($date)) {
             return date('Ymd');
         }
-
         $timestamp = strtotime($date);
         if ($timestamp === false) {
-            return preg_replace('/[^0-9]/', '', $date);
+            return preg_replace('/\D/', '', $date);
         }
-
         return date('Ymd', $timestamp);
     }
 
     private function formatIsaVersion(string $version): string
     {
-        $normalized = preg_replace('/[^0-9]/', '', $version);
+        $normalized = preg_replace('/\D/', '', $version);
         return substr(str_pad($normalized ?: '005010', 5, '0', STR_PAD_LEFT), 0, 5);
     }
 }

@@ -23,11 +23,14 @@ return [
             'version' => env('EDI_MANUFACTURER_X12_VERSION', env('EDI_X12_VERSION', '005010')),
         ],
         'endpoints' => [
+            '846' => env('EDI_MANUFACTURER_ENDPOINT_846'),  // Inventory Advice
             '855' => env('EDI_MANUFACTURER_ENDPOINT_855'),  // PO Acknowledgment
             '856' => env('EDI_MANUFACTURER_ENDPOINT_856'),  // ASN
             '810' => env('EDI_MANUFACTURER_ENDPOINT_810'),  // Invoice
         ],
         'content_type' => env('EDI_MANUFACTURER_CONTENT_TYPE', 'application/EDI-X12'),
+        // body_format: 'raw' = send X12 as plain body; 'json_edi' = wrap as {"edi":"..."}
+        'body_format' => env('EDI_MANUFACTURER_BODY_FORMAT', 'raw'),
         'authentication' => [
             'type' => env('EDI_MANUFACTURER_AUTH_TYPE', 'api_key'),  // api_key, oauth, basic
             'api_key' => env('EDI_MANUFACTURER_API_KEY'),
@@ -59,7 +62,9 @@ return [
             '204' => env('EDI_LOGISTICS_ENDPOINT_204'),  // Motor Carrier Load Tender
             '990' => env('EDI_LOGISTICS_ENDPOINT_990'),  // Response Webhook (for their responses)
         ],
-        'content_type' => env('EDI_LOGISTICS_CONTENT_TYPE', 'application/x-edi'),
+        'content_type' => env('EDI_LOGISTICS_CONTENT_TYPE', 'application/json'),
+        // body_format: 'raw' = send X12 as plain body; 'json_edi' = wrap as {"edi":"..."}
+        'body_format' => env('EDI_LOGISTICS_BODY_FORMAT', 'json_edi'),
         'authentication' => [
             'type' => env('EDI_LOGISTICS_AUTH_TYPE', 'api_key'),
             'api_key' => env('EDI_LOGISTICS_API_KEY'),

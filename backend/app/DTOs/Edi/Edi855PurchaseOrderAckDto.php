@@ -21,6 +21,8 @@ class Edi855PurchaseOrderAckDto
         public ?string $rejectionReason = null,
         public ?string $estimatedShipDate = null,
         public ?array $shipToAddress = [],
+        public ?array $manufacturerAddress = null,
+        public ?array $sellerAddress = null,
     ) {}
 
     /**
@@ -44,6 +46,8 @@ class Edi855PurchaseOrderAckDto
             'rejection_reason' => $this->rejectionReason,
             'estimated_ship_date' => $this->estimatedShipDate,
             'ship_to_address' => $this->shipToAddress,
+            'manufacturer_address' => $this->manufacturerAddress,
+            'seller_address' => $this->sellerAddress,
         ];
     }
 }

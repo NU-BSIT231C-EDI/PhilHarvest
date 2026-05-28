@@ -10,6 +10,8 @@ use Illuminate\Http\Response;
 
 class OutboundController
 {
+    private const TX_NOT_FOUND = 'Transaction not found';
+
     private CsvOutboundService $csvOutboundService;
     private X12ToCSVConverter $x12ToCsvConverter;
 
@@ -38,13 +40,62 @@ class OutboundController
     }
 
     /**
+     * Delete EDI transactions.
+     * DELETE /api/edi/transactions?before=2026-05-21   — delete everything before that date
+     * DELETE /api/edi/transactions?keep=3              — delete all except the N most recent
+     */
+    public function clearTransactions(\Illuminate\Http\Request $request)
+    {
+        if ($request->has('before')) {
+            $before = $request->query('before');
+            $deleted = EdiTransaction::query()
+                ->whereDate('created_at', '<', $before)
+                ->delete();
+
+            return response()->json(['deleted' => $deleted]);
+        }
+
+        $keep = max(0, (int) $request->query('keep', 3));
+
+        $keepIds = EdiTransaction::query()
+            ->latest()
+            ->limit($keep)
+            ->pluck('id');
+
+        $deleted = EdiTransaction::query()
+            ->when($keepIds->isNotEmpty(), fn($q) => $q->whereNotIn('id', $keepIds))
+            ->when($keepIds->isEmpty(), fn($q) => $q)
+            ->delete();
+
+        return response()->json([
+            'deleted' => $deleted,
+            'kept'    => $keepIds->count(),
+        ]);
+    }
+
+    /**
+     * Delete a single EDI transaction by ID
+     */
+    public function deleteTransaction($id)
+    {
+        $transaction = EdiTransaction::find($id);
+
+        if (!$transaction) {
+            return response()->json(['error' => self::TX_NOT_FOUND], \Illuminate\Http\Response::HTTP_NOT_FOUND);
+        }
+
+        $transaction->delete();
+
+        return response()->json(['deleted' => 1]);
+    }
+
+    /**
      * List recent EDI transactions for dashboard monitoring
      */
     public function listTransactions()
     {
         $transactions = EdiTransaction::query()
             ->latest()
-            ->limit(25)
             ->get([
                 'id',
                 'transaction_type',
@@ -67,7 +118,7 @@ class OutboundController
                     'partner_id' => $transaction->partner_id,
                     'status' => $transaction->status,
                     'direction' => $direction,
-                    'payload_preview' => $payload ? mb_substr($payload, 0, 500) : null,
+                    'payload_preview' => $payload ?: null,
                     'parsed_data' => $transaction->parsed_data,
                     'created_at' => optional($transaction->created_at)->toIso8601String(),
                 ];
@@ -141,7 +192,7 @@ class OutboundController
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
-                'error' => 'Transaction not found'
+                'error' => self::TX_NOT_FOUND
             ], Response::HTTP_NOT_FOUND);
 
         } catch (\Exception $e) {
@@ -227,7 +278,7 @@ class OutboundController
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json([
-                'error' => 'Transaction not found'
+                'error' => self::TX_NOT_FOUND
             ], Response::HTTP_NOT_FOUND);
         }
     }

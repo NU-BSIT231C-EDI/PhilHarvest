@@ -16,6 +16,8 @@ class Edi855LineAckDto
         public ?float $rejectedQuantity = null,
         public ?string $rejectionReason = null,
         public ?string $estimatedDeliveryDate = null,
+        public ?string $partNumber = null,
+        public ?float $unitPrice = null,
     ) {}
 
     public function toArray(): array
@@ -28,6 +30,8 @@ class Edi855LineAckDto
             'rejected_quantity' => $this->rejectedQuantity,
             'rejection_reason' => $this->rejectionReason,
             'estimated_delivery_date' => $this->estimatedDeliveryDate,
+            'part_number' => $this->partNumber,
+            'unit_price' => $this->unitPrice,
         ];
     }
 }

@@ -157,32 +157,32 @@ class QueueWebhookController extends Controller
             throw new \Exception("Invalid ProcessEdiInboundJob structure");
         }
 
-        // Decode the serialized command
-        $commandData = json_decode($jobData['data']['command'] ?? '{}', true);
-        
-        // The job properties are in the serialized command
-        // For ProcessEdiInboundJob constructor args:
-        // public function __construct(
-        //     public int $transactionId,
-        //     public string $x12Payload,
-        // )
-
-        // Extract from the command or from jobData properties
-        $transactionId = $commandData['transactionId'] 
-            ?? $jobData['data']['transactionId'] 
-            ?? null;
-        $x12Payload = $commandData['x12Payload'] 
-            ?? $jobData['data']['x12Payload'] 
-            ?? null;
-
-        if (!$transactionId || !$x12Payload) {
-            throw new \Exception("Missing transactionId or x12Payload in job data");
+        // Laravel queues serialize the job with PHP serialize(), not JSON.
+        // Example: O:29:"App\Jobs\ProcessEdiInboundJob":2:{s:13:"transactionId";i:45;...}
+        $serializedCommand = $jobData['data']['command'] ?? null;
+        if (!$serializedCommand || !is_string($serializedCommand)) {
+            throw new \Exception('Missing serialized command in job data');
         }
 
-        // Create and execute the job
+        $command = @unserialize(
+            $serializedCommand,
+            ['allowed_classes' => [ProcessEdiInboundJob::class]]
+        );
+
+        if (!$command instanceof ProcessEdiInboundJob) {
+            throw new \Exception('Failed to unserialize ProcessEdiInboundJob from queue payload');
+        }
+
+        $transactionId = $command->transactionId;
+        $x12Payload = $command->x12Payload;
+
+        if (!$transactionId || $x12Payload === null || $x12Payload === '') {
+            throw new \Exception('Missing transactionId or x12Payload in job data');
+        }
+
+        // Execute the unserialized job
         try {
-            $job = new ProcessEdiInboundJob($transactionId, $x12Payload);
-            $job->handle();
+            $command->handle();
 
             Log::info('ProcessEdiInboundJob executed successfully', [
                 'messageId' => $messageId,

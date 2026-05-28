@@ -1,0 +1,74 @@
+services:
+  # ============================================================
+  # Frontend: React/Vite — deployed as a Static Site
+  # Render serves the pre-built dist/ folder; no server process needed.
+  # ============================================================
+  - type: web
+    name: PhilHarvest-Staticfrontend
+    runtime: static
+    rootDir: ./frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://philharvest.onrender.com
+      - key: VITE_EDI_AUTH_TOKEN
+        value: master_api_key_secret_123456
+
+  # ============================================================
+  # Backend: Laravel — deployed via Docker
+  # ============================================================
+  - type: web
+    name: PhilHarvest
+    runtime: docker
+    rootDir: ./backend
+    dockerfilePath: ./Dockerfile
+    region: singapore
+    plan: free
+    healthCheckPath: /
+    preDeployCommand: "php artisan migrate --force"
+    envVars:
+      - key: APP_NAME
+        value: PhilHarvest
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: APP_KEY
+        sync: false
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_HOST
+        value: dpg-d866n16gvqtc73ee49og-a
+      - key: DB_PORT
+        value: 5432
+      - key: DB_DATABASE
+        value: philharvest
+      - key: DB_USERNAME
+        value: admin
+      - key: DB_PASSWORD
+        value: Q3iYcq6l2pXl18rGdkJeqwTM2UTGQZVM
+      - key: QUEUE_CONNECTION
+        value: sqs
+      - key: AWS_REGION
+        value: ap-southeast-1
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: SQS_PREFIX
+        sync: false
+      - key: SQS_QUEUE
+        value: philharvest-queue
+      - key: LAMBDA_SECRET
+        sync: false
+      - key: EDI_AUTH_TOKEN
+        value: test_token_here
+      - key: EDI_MANUFACTURER_BODY_FORMAT
+        value: json_x12content
+      - key: EDI_MANUFACTURER_CONTENT_TYPE
+        value: application/json

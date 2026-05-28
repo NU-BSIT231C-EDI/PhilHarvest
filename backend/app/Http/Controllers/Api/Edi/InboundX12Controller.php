@@ -9,6 +9,7 @@ use App\Services\Edi\Parsers\Edi850Parser;
 use App\Services\Edi\Parsers\Edi990Parser;
 use App\Jobs\ProcessEdiInboundJob;
 use App\Models\EdiTransaction;
+use App\Models\TradingPartner;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -30,6 +31,46 @@ class InboundX12Controller
     ) {
         $this->edi850Parser = $edi850Parser;
         $this->edi990Parser = $edi990Parser;
+    }
+
+    /**
+     * Generic inbound endpoint — detects transaction type from the ST segment
+     * and dispatches to the appropriate handler.
+     * POST /api/edi/inbound/x12
+     */
+    public function receiveInbound(Request $request)
+    {
+        $rawEdi = $request->getContent();
+
+        if (empty($rawEdi)) {
+            return response()->json([
+                'error' => 'Empty payload',
+                'message' => 'Request body must contain raw X12 EDI string',
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $type = $this->detectTransactionType($rawEdi);
+
+        return match ($type) {
+            '861'   => $this->receive861($request),
+            '990'   => $this->receive990($request),
+            default => $this->receive850($request),
+        };
+    }
+
+    /**
+     * Extract the ST transaction set identifier code (e.g. '850', '990') from
+     * the first ST segment, defaulting to '850' when absent.
+     */
+    private function detectTransactionType(string $rawEdi): string
+    {
+        foreach (explode('~', $rawEdi) as $segment) {
+            $fields = explode('*', trim($segment));
+            if (($fields[0] ?? '') === 'ST' && isset($fields[1])) {
+                return trim($fields[1]);
+            }
+        }
+        return '850';
     }
 
     /**
@@ -56,6 +97,11 @@ class InboundX12Controller
                     'error' => 'Invalid X12 format',
                     'message' => 'Payload does not appear to be valid X12 EDI',
                 ], Response::HTTP_BAD_REQUEST);
+            }
+
+            // Reject if sender is not a registered trading partner
+            if ($reject = $this->rejectUnknownSender($rawEdi)) {
+                return $reject;
             }
 
             // Parse the X12 string
@@ -103,19 +149,9 @@ class InboundX12Controller
                 throw $e;
             }
 
-            // Dispatch async job for processing.
-            // If the queue backend is unavailable, fall back to sync so inbound
-            // requests still succeed for valid X12 documents.
-            try {
-                ProcessEdiInboundJob::dispatch($transaction->id, $rawEdi);
-            } catch (\Throwable $dispatchError) {
-                Log::warning('Queue dispatch failed for EDI 850, falling back to sync processing', [
-                    'transaction_id' => $transaction->id,
-                    'error' => $dispatchError->getMessage(),
-                ]);
-
-                ProcessEdiInboundJob::dispatchSync($transaction->id, $rawEdi);
-            }
+            // Always run synchronously — Render web services have no queue worker,
+            // so async dispatch would leave every transaction in PENDING forever.
+            ProcessEdiInboundJob::dispatchSync($transaction->id, $rawEdi);
 
             Log::info('EDI 850 received and queued for processing', [
                 'transaction_id' => $transaction->id,
@@ -209,45 +245,74 @@ class InboundX12Controller
                 ], Response::HTTP_BAD_REQUEST);
             }
 
+            if ($reject = $this->rejectUnknownSender($rawEdi)) {
+                return $reject;
+            }
+
             // Parse the X12 string
             $dto = $this->edi990Parser->parse($rawEdi);
 
-            // Create transaction record
-            $transaction = EdiTransaction::create([
-                'transaction_type' => '990',
-                'control_number' => $dto->controlNumber,
-                'partner_id' => $dto->carrierId,
-                'raw_payload' => $rawEdi,
-                'parsed_data' => $dto->toArray(),
-                'status' => 'PENDING',
-            ]);
+            $controlNumber = trim($dto->controlNumber);
 
-            try {
-                ProcessEdiInboundJob::dispatch($transaction->id, $rawEdi);
-            } catch (\Throwable $dispatchError) {
-                Log::warning('Queue dispatch failed for EDI 990, falling back to sync processing', [
-                    'transaction_id' => $transaction->id,
-                    'error' => $dispatchError->getMessage(),
+            // Return a consistent response if already processed
+            $existing = EdiTransaction::where('control_number', $controlNumber)->first();
+            if ($existing) {
+                Log::info('Duplicate EDI 990 control number received', [
+                    'control_number' => $controlNumber,
+                    'transaction_id' => $existing->id,
                 ]);
-
-                ProcessEdiInboundJob::dispatchSync($transaction->id, $rawEdi);
+                return response()->json([
+                    'error'            => 'Already handled',
+                    'handled'          => true,
+                    'already_processed' => true,
+                    'message'          => 'This EDI interchange has already been handled',
+                    'transaction_id'   => $existing->id,
+                    'control_number'   => $existing->control_number,
+                ], Response::HTTP_CONFLICT);
             }
+
+            // Create transaction record
+            try {
+                $transaction = EdiTransaction::create([
+                    'transaction_type' => '990',
+                    'control_number'   => $controlNumber,
+                    'partner_id'       => $dto->carrierId,
+                    'raw_payload'      => $rawEdi,
+                    'parsed_data'      => $dto->toArray(),
+                    'status'           => 'PENDING',
+                ]);
+            } catch (QueryException $e) {
+                if ($this->isAlreadyHandledException($e)) {
+                    $existing = EdiTransaction::where('control_number', $controlNumber)->first();
+                    return response()->json([
+                        'error'            => 'Already handled',
+                        'handled'          => true,
+                        'already_processed' => true,
+                        'message'          => 'This EDI interchange has already been handled',
+                        'transaction_id'   => $existing?->id,
+                        'control_number'   => $controlNumber,
+                    ], Response::HTTP_CONFLICT);
+                }
+                throw $e;
+            }
+
+            ProcessEdiInboundJob::dispatchSync($transaction->id, $rawEdi);
 
             Log::info('EDI 990 received and queued for processing', [
                 'transaction_id' => $transaction->id,
-                'control_number' => $dto->controlNumber,
+                'control_number' => $controlNumber,
                 'load_tender_id' => $dto->loadTenderId,
-                'carrier_id' => $dto->carrierId,
-                'response_code' => $dto->responseCode,
+                'carrier_id'     => $dto->carrierId,
+                'response_code'  => $dto->responseCode,
             ]);
 
             return response()->json([
-                'success' => true,
-                'message' => 'EDI 990 received and queued for processing',
+                'success'        => true,
+                'message'        => 'EDI 990 received and queued for processing',
                 'transaction_id' => $transaction->id,
                 'control_number' => $transaction->control_number,
-                'response_code' => $dto->responseCode,
-                'is_accepted' => $dto->isAccepted(),
+                'response_code'  => $dto->responseCode,
+                'is_accepted'    => $dto->isAccepted(),
             ], Response::HTTP_ACCEPTED);
 
         } catch (\InvalidArgumentException $e) {
@@ -274,8 +339,181 @@ class InboundX12Controller
     }
 
     /**
+     * Receive EDI 861 (Receiving Advice / Acceptance Certificate)
+     * POST /api/edi/861/receive
+     *
+     * Sent by the manufacturer/buyer to confirm goods have been received.
+     * Parsed inline — no separate DTO/parser needed.
+     */
+    public function receive861(Request $request)
+    {
+        try {
+            $rawEdi = $request->getContent();
+
+            if (empty($rawEdi)) {
+                return response()->json([
+                    'error'   => 'Empty payload',
+                    'message' => 'Request body must contain raw X12 EDI string',
+                ], Response::HTTP_BAD_REQUEST);
+            }
+
+            if (!$this->isValidX12($rawEdi)) {
+                return response()->json([
+                    'error'   => 'Invalid X12 format',
+                    'message' => 'Payload does not appear to be valid X12 EDI',
+                ], Response::HTTP_BAD_REQUEST);
+            }
+
+            if ($reject = $this->rejectUnknownSender($rawEdi)) {
+                return $reject;
+            }
+
+            $controlNumber = $this->extractIsaField($rawEdi, 13);
+            $partnerId     = $this->extractIsaField($rawEdi, 6);
+            $parsedData    = $this->parse861($rawEdi);
+
+            $existing = EdiTransaction::where('control_number', $controlNumber)->first();
+            if ($existing) {
+                return $this->alreadyHandledResponse($existing->id, $existing->control_number, $parsedData['po_number'] ?? null);
+            }
+
+            try {
+                $transaction = EdiTransaction::create([
+                    'transaction_type' => '861',
+                    'control_number'   => $controlNumber,
+                    'partner_id'       => $partnerId,
+                    'raw_payload'      => $rawEdi,
+                    'parsed_data'      => $parsedData,
+                    'status'           => 'VALIDATED',
+                ]);
+            } catch (QueryException $e) {
+                if ($this->isAlreadyHandledException($e)) {
+                    $existing = EdiTransaction::where('control_number', $controlNumber)->first();
+                    return $this->alreadyHandledResponse($existing?->id, $controlNumber, $parsedData['po_number'] ?? null);
+                }
+                throw $e;
+            }
+
+            Log::info('EDI 861 received', [
+                'transaction_id' => $transaction->id,
+                'control_number' => $controlNumber,
+                'po_number'      => $parsedData['po_number'] ?? null,
+                'ra_number'      => $parsedData['ra_number'] ?? null,
+                'partner_id'     => $partnerId,
+            ]);
+
+            return response()->json([
+                'success'        => true,
+                'message'        => 'EDI 861 received and stored',
+                'transaction_id' => $transaction->id,
+                'control_number' => $transaction->control_number,
+                'po_number'      => $parsedData['po_number'] ?? null,
+                'ra_number'      => $parsedData['ra_number'] ?? null,
+            ], Response::HTTP_ACCEPTED);
+
+        } catch (\Exception $e) {
+            Log::error('Unexpected error processing EDI 861', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'error'   => 'Internal server error',
+                'message' => 'An unexpected error occurred processing the EDI document',
+            ], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Parse an EDI 861 Receiving Advice into a structured array.
+     *
+     * Extracts BRA (header), RCD (line items), and N1 name loops.
+     */
+    private function parse861(string $rawEdi): array
+    {
+        $data = [
+            'ra_number'  => null,
+            'po_number'  => null,
+            'ra_date'    => null,
+            'vendor_id'  => null,
+            'buyer_id'   => null,
+            'line_items' => [],
+        ];
+
+        $segments   = explode('~', $rawEdi);
+        $currentN1  = null;
+
+        foreach ($segments as $segment) {
+            $fields = explode('*', trim($segment));
+            $id     = $fields[0] ?? '';
+
+            if ($id === 'BRA') {
+                $data['ra_number'] = trim($fields[1] ?? '');
+                $data['po_number'] = trim($fields[2] ?? '');
+                $data['ra_date']   = trim($fields[3] ?? '');
+            }
+
+            if ($id === 'N1') {
+                $currentN1 = trim($fields[1] ?? '');
+                $name      = trim($fields[2] ?? '');
+                if ($currentN1 === 'VN') $data['vendor_id'] = $name;
+                if ($currentN1 === 'BY') $data['buyer_id']  = $name;
+            }
+
+            // RCD*{line}*{qty}*{uom}*{condition}*{qualifier}*{part_number}
+            if ($id === 'RCD') {
+                $data['line_items'][] = [
+                    'line_number'  => trim($fields[1] ?? ''),
+                    'qty_received' => (int) ($fields[2] ?? 0),
+                    'uom'          => trim($fields[3] ?? 'EA'),
+                    'part_number'  => trim($fields[6] ?? ''),
+                ];
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Reject the request when ISA06 (sender ID) is not a registered trading partner.
+     * Returns a 403 JSON response, or null when the sender is known.
+     */
+    private function rejectUnknownSender(string $rawEdi): ?\Illuminate\Http\JsonResponse
+    {
+        $senderId = trim($this->extractIsaField($rawEdi, 6));
+
+        $known = TradingPartner::all()->contains(
+            fn (TradingPartner $p) => strcasecmp(trim($p->isa_receiver_id), $senderId) === 0
+        );
+
+        if (!$known) {
+            Log::warning('EDI rejected: unregistered sender', ['sender_id' => $senderId]);
+            return response()->json([
+                'error'   => 'Unknown trading partner',
+                'message' => "Sender '{$senderId}' is not a registered trading partner.",
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract a field value from the ISA segment by 1-based field index.
+     */
+    private function extractIsaField(string $rawEdi, int $index): string
+    {
+        foreach (explode('~', $rawEdi) as $segment) {
+            $fields = explode('*', trim($segment));
+            if (($fields[0] ?? '') === 'ISA' && isset($fields[$index])) {
+                return trim($fields[$index]);
+            }
+        }
+        return 'UNKNOWN';
+    }
+
+    /**
      * Validate X12 format
-     * 
+     *
      * X12 documents should start with ISA segment and end with tilde
      */
     private function isValidX12(string $payload): bool

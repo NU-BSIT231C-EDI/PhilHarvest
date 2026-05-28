@@ -36,6 +36,12 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
 
     // List recent EDI transactions for dashboard monitoring
     Route::get('/transactions', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'listTransactions']);
+
+    // Delete all transactions except the N most recent (for dashboard cleanup)
+    Route::delete('/transactions', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'clearTransactions']);
+
+    // Delete a single transaction by ID
+    Route::delete('/transactions/{id}', [\App\Http\Controllers\Api\Edi\OutboundController::class, 'deleteTransaction']);
     
     // ========================================================================
     // INBOUND ENDPOINTS - Receive raw X12 EDI strings
@@ -43,27 +49,52 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     
     // EDI 850: Purchase Order (from Manufacturer)
     Route::post('/850/receive', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive850']);
-    Route::post('/inbound/x12', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive850']);
+    Route::post('/inbound/x12', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receiveInbound']);
     
     // EDI 990: Response to Load Tender (from Logistics Partner)
     Route::post('/990/receive', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive990']);
+
+    // EDI 861: Receiving Advice (from Manufacturer/Buyer, confirms goods received)
+    Route::post('/861/receive', [\App\Http\Controllers\Api\Edi\InboundX12Controller::class, 'receive861']);
     
     // ========================================================================
     // OUTBOUND ENDPOINTS - Generate and transmit raw X12 EDI strings
     // ========================================================================
     
+    // Relay: proxy an outbound EDI HTTP call server-side (avoids browser CORS)
+    Route::post('/relay', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'relay']);
+
+    // EDI 846: Inventory Advice (to Manufacturer — triggered on stock update)
+    Route::post('/846/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send846']);
+
     // EDI 855: Purchase Order Acknowledgment (to Manufacturer)
     Route::post('/855/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send855']);
+    Route::post('/855/preview', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'preview855']);
     
     // EDI 204: Motor Carrier Load Tender (to Logistics Partner)
     Route::post('/204/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send204']);
+    Route::post('/204/preview', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'preview204']);
     
     // EDI 856: Advance Ship Notice / ASN (to Manufacturer)
     Route::post('/856/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send856']);
+    Route::post('/856/preview', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'preview856']);
     
     // EDI 810: Invoice (to Manufacturer)
     Route::post('/810/send', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'send810']);
+    Route::post('/810/preview', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'preview810']);
     
+    // ========================================================================
+    // TRADING PARTNER / COMPANY PROFILE MANAGEMENT
+    // ========================================================================
+
+    Route::get('/trading-partners', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'index']);
+    Route::post('/trading-partners', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'store']);
+    Route::get('/trading-partners/{tradingPartner}', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'show']);
+    Route::put('/trading-partners/{tradingPartner}', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'update']);
+    Route::delete('/trading-partners/{tradingPartner}', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'destroy']);
+    Route::patch('/trading-partners/{tradingPartner}/archive', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'archive']);
+    Route::patch('/trading-partners/{tradingPartner}/unarchive', [\App\Http\Controllers\Api\Edi\TradingPartnerController::class, 'unarchive']);
+
     // ========================================================================
     // TRANSACTION MANAGEMENT ENDPOINTS
     // ========================================================================
@@ -77,6 +108,12 @@ Route::prefix('edi')->middleware(['api', 'edi.auth', 'edi.rate-limit'])->group(f
     // Retry failed transmission
     Route::post('/transmissions/{transactionId}/retry', [\App\Http\Controllers\Api\Edi\OutboundX12Controller::class, 'retryTransmission']);
 });
+
+// ============================================================================
+// PRODUCTS API
+// ============================================================================
+
+Route::apiResource('products', \App\Http\Controllers\Api\ProductController::class);
 
 // ============================================================================
 // AWS LAMBDA / SQS WEBHOOK ROUTES

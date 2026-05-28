@@ -11,86 +11,53 @@ use App\Models\EdiTransaction;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use App\Services\Edi\Converters\X12ToCSVConverter;
+use App\Services\Edi\Parsers\Edi850Parser;
 
 class ProcessEdiInboundJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /**
-     * The X12 payload to process (could be original X12 or generated from CSV)
-     */
     public function __construct(
         public int $transactionId,
         public string $x12Payload,
     ) {}
 
-    public function handle()
+    public function handle(): void
     {
+        $transaction = null;
+
         try {
             $transaction = EdiTransaction::find($this->transactionId);
             if (!$transaction) {
                 throw new \Exception("Transaction not found: {$this->transactionId}");
             }
 
-            // Parse X12 EDI segments
-            $parsedData = $this->parseEdi($this->x12Payload);
-
-            // Generate CSV from X12 for storage/audit trail
-            try {
-                $csvConverter = new X12ToCSVConverter();
-                if ($csvConverter->validate($this->x12Payload)) {
-                    $csvPayload = $csvConverter->convert($this->x12Payload);
-                    
-                    // Update transaction with both formats for audit trail
-                    $transaction->update([
-                        'raw_payload' => $this->x12Payload,  // Store X12 as raw
-                        'csv_payload' => $csvPayload,         // Store generated CSV
-                        'parsed_data' => $parsedData,
-                        'status' => 'VALIDATED',
-                        'outbound_format' => 'CSV', // Default to CSV for outbound
-                    ]);
-                }
-            } catch (\Exception $csvError) {
-                // Log CSV generation error but continue processing
-                \Log::warning("CSV generation failed during processing", [
-                    'transaction_id' => $transaction->id,
-                    'error' => $csvError->getMessage(),
-                ]);
-
-                $transaction->update([
-                    'parsed_data' => $parsedData,
-                    'status' => 'VALIDATED',
-                ]);
+            $x12 = $transaction->getX12Payload() ?: $this->x12Payload;
+            if ($x12 === null || $x12 === '') {
+                throw new \Exception('Missing X12 payload on transaction and job');
             }
 
-            // Process based on transaction type
-            if ($parsedData['transaction_type'] === '850') {
-                $this->processPurchaseOrder($transaction, $parsedData);
-            }
+            match ($transaction->transaction_type) {
+                '850' => $this->process850($transaction, $x12),
+                '990' => $this->process990($transaction, $x12),
+                default => $this->processUnknownType($transaction),
+            };
 
-            // If this came from CSV inbound, mark the conversion as complete
-            if ($transaction->inbound_format === 'CSV') {
-                \Log::info("CSV converted to X12 and processed", [
-                    'transaction_id' => $transaction->id,
-                    'control_number' => $transaction->control_number,
-                    'csv_stored' => true,
-                    'x12_stored' => true,
-                ]);
-            }
-
-            \Log::info("EDI Transaction processed successfully", [
+            \Log::info('EDI Transaction processed successfully', [
                 'transaction_id' => $transaction->id,
                 'control_number' => $transaction->control_number,
                 'format' => $transaction->inbound_format,
+                'type' => $transaction->transaction_type,
             ]);
-
         } catch (\Exception $e) {
-            $transaction->update([
-                'status' => 'REJECTED',
-                'error_message' => $e->getMessage(),
-            ]);
+            if ($transaction instanceof EdiTransaction) {
+                $transaction->update([
+                    'status' => 'REJECTED',
+                    'error_message' => $e->getMessage(),
+                ]);
+            }
 
-            \Log::error("EDI Processing Error", [
+            \Log::error('EDI Processing Error', [
                 'transaction_id' => $this->transactionId,
                 'error' => $e->getMessage(),
             ]);
@@ -99,64 +66,110 @@ class ProcessEdiInboundJob implements ShouldQueue
         }
     }
 
-    /**
-     * Parse X12 EDI payload
-     * Handles both native X12 and X12 generated from CSV
-     */
-    private function parseEdi(string $payload): array
+    private function process850(EdiTransaction $transaction, string $x12): void
     {
-        $segments = [];
-        $normalized = str_replace(["\r\n", "\r"], "\n", $payload);
-        $lines = preg_split('/~\s*|\n/', $normalized);
+        if (PurchaseOrder::where('edi_transaction_id', $transaction->id)->exists()) {
+            $transaction->update([
+                'status' => 'VALIDATED',
+                'error_message' => null,
+                'outbound_format' => $transaction->inbound_format === 'CSV' ? $transaction->outbound_format : 'X12',
+            ]);
 
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if (empty($line)) continue;
+            \Log::info('EDI 850 skipped — purchase order already exists (idempotent retry)', [
+                'transaction_id' => $transaction->id,
+            ]);
 
-            $parts = explode('*', $line);
-            $segmentType = $parts[0] ?? null;
-
-            if ($segmentType) {
-                if (!isset($segments[$segmentType])) {
-                    $segments[$segmentType] = [];
-                }
-                $segments[$segmentType][] = $parts;
-            }
+            return;
         }
 
-        return [
-            'transaction_type' => $segments['ST'][0][1] ?? 'UNKNOWN',
-            'segments' => $segments,
-            'segment_count' => count($segments),
-        ];
+        $parsed = $transaction->parsed_data;
+        if (!$this->isCanonical850ParsedData($parsed)) {
+            $parsed = (new Edi850Parser())->parse($x12)->toArray();
+            $transaction->update(['parsed_data' => $parsed]);
+        }
+
+        $this->maybeAttachCsvAudit($transaction, $x12);
+
+        $transaction->update([
+            'status' => 'VALIDATED',
+            'error_message' => null,
+            'outbound_format' => $transaction->inbound_format === 'CSV' ? $transaction->outbound_format : 'X12',
+        ]);
+
+        $this->createPurchaseOrderFromCanonical850($transaction, $parsed);
+    }
+
+    private function process990(EdiTransaction $transaction, string $x12): void
+    {
+        $this->maybeAttachCsvAudit($transaction, $x12);
+
+        $transaction->update([
+            'status' => 'VALIDATED',
+            'error_message' => null,
+            'outbound_format' => $transaction->inbound_format === 'CSV' ? $transaction->outbound_format : 'X12',
+        ]);
+    }
+
+    private function processUnknownType(EdiTransaction $transaction): void
+    {
+        \Log::warning('EDI job received unsupported transaction type', [
+            'transaction_id' => $transaction->id,
+            'transaction_type' => $transaction->transaction_type,
+        ]);
+
+        $transaction->update([
+            'status' => 'VALIDATED',
+            'error_message' => null,
+        ]);
     }
 
     /**
-     * Process 850 Purchase Order
-     * Extracts data from parsed X12 segments and creates database records
+     * Shape produced by Edi850PurchaseOrderDto::toArray() at ingest time.
      */
-    private function processPurchaseOrder(EdiTransaction $transaction, array $parsedData): void
+    private function isCanonical850ParsedData(mixed $parsed): bool
     {
-        $segments = $parsedData['segments'];
-
-        // Extract PO info from BEG segment
-        $begSegment = $segments['BEG'][0] ?? null;
-        if (!$begSegment) {
-            throw new \Exception("Missing BEG segment in 850");
+        if (!is_array($parsed)) {
+            return false;
         }
 
-        $poNumber = $begSegment[3] ?? 'UNKNOWN';
-        // Make PO number unique by appending control number
-        $poNumber = $poNumber . '-' . $transaction->control_number;
-        
-        // Parse date from YYYYMMDD format
-        $rawDate = $begSegment[4] ?? date('Ymd');
-        $orderDate = $this->safeParseYmdDate($rawDate) ?? date('Y-m-d');
+        return array_key_exists('po_number', $parsed)
+            && array_key_exists('line_items', $parsed)
+            && is_array($parsed['line_items']);
+    }
 
-        // Extract delivery date from DTM segments
-        $deliveryDate = $this->extractDateFromDTM($segments['DTM'] ?? []) ?? $orderDate;
+    /**
+     * Legacy CSV inbound: optional CSV audit file. Native X12 path skips this.
+     */
+    private function maybeAttachCsvAudit(EdiTransaction $transaction, string $x12): void
+    {
+        if ($transaction->inbound_format !== 'CSV') {
+            return;
+        }
 
-        // Create purchase order
+        try {
+            $csvConverter = new X12ToCSVConverter();
+            if ($csvConverter->validate($x12)) {
+                $transaction->update([
+                    'csv_payload' => $csvConverter->convert($x12),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('CSV audit generation failed (legacy CSV inbound)', [
+                'transaction_id' => $transaction->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Persist domain rows from canonical 850 JSON (DTO array), not from ad-hoc segment maps.
+     */
+    private function createPurchaseOrderFromCanonical850(EdiTransaction $transaction, array $parsed): void
+    {
+        $poNumber = ($parsed['po_number'] ?? 'UNKNOWN') . '-' . $transaction->control_number;
+        $orderDate = $parsed['po_date'] ?? date('Y-m-d');
+        $deliveryDate = $parsed['delivery_date'] ?? $parsed['shipping_date'] ?? $orderDate;
+
         $po = PurchaseOrder::create([
             'edi_transaction_id' => $transaction->id,
             'po_number' => $poNumber,
@@ -167,90 +180,38 @@ class ProcessEdiInboundJob implements ShouldQueue
             'status' => 'PENDING',
         ]);
 
-        // Process line items from PO1 segments
-        $totalAmount = 0;
-        if (isset($segments['PO1'])) {
-            foreach ($segments['PO1'] as $index => $po1Segment) {
-                // PO1 format: PO1*LineNum*Qty*UnitCode*UnitPrice*BasisCode*IdQualifier*ProductId
-                $quantity = floatval($po1Segment[2] ?? 0);
-                $unitPrice = floatval($po1Segment[4] ?? 0);  // Index 4 is unit price
-                $lineTotal = $quantity * $unitPrice;
-                $totalAmount += $lineTotal;
+        $totalAmount = 0.0;
+        $lineItems = $parsed['line_items'] ?? [];
 
-                // Try to extract product name from PID segment
-                $productName = 'Product';
-                $pidSegment = $segments['PID'][$index] ?? null;
-                if ($pidSegment) {
-                    $productName = $pidSegment[5] ?? $productName;
-                }
-
-                PurchaseOrderItem::create([
-                    'purchase_order_id' => $po->id,
-                    'line_number' => intval($po1Segment[1] ?? ($index + 1)),
-                    'product_code' => $po1Segment[7] ?? $po1Segment[6] ?? 'UNKNOWN',
-                    'product_name' => $productName,
-                    'quantity' => $quantity,
-                    'unit_of_measure' => $po1Segment[3] ?? 'EA',  // Index 3 is unit code
-                    'unit_price' => $unitPrice,
-                    'line_total' => $lineTotal,
-                ]);
+        foreach ($lineItems as $index => $line) {
+            if (!is_array($line)) {
+                continue;
             }
+
+            $quantity = (float) ($line['quantity'] ?? 0);
+            $unitPrice = (float) ($line['unit_price'] ?? 0);
+            $lineTotal = isset($line['line_amount']) ? (float) $line['line_amount'] : $quantity * $unitPrice;
+            $totalAmount += $lineTotal;
+
+            PurchaseOrderItem::create([
+                'purchase_order_id' => $po->id,
+                'line_number' => (string) ($line['line_number'] ?? (string) ($index + 1)),
+                'product_code' => (string) ($line['part_number'] ?? 'UNKNOWN'),
+                'product_name' => (string) ($line['part_description'] ?? 'Product'),
+                'quantity' => $quantity,
+                'unit_of_measure' => (string) ($line['quantity_uom'] ?? 'EA'),
+                'unit_price' => $unitPrice,
+                'line_total' => $lineTotal,
+            ]);
         }
 
-        // Update PO total
         $po->update(['total_amount' => $totalAmount]);
 
-        // Log success
-        \Log::info("Purchase Order created", [
+        \Log::info('Purchase Order created from canonical 850 JSON', [
             'po_number' => $poNumber,
             'po_id' => $po->id,
             'total_amount' => $totalAmount,
             'inbound_format' => $transaction->inbound_format,
         ]);
-    }
-
-    /**
-     * Extract delivery date from DTM segments
-     * DTM segment format: DTM*qualifier*date*time_code
-     */
-    private function extractDateFromDTM(array $dtmSegments): ?string
-    {
-        foreach ($dtmSegments as $dtm) {
-            if (($dtm[1] ?? null) === '002') { // Delivery date qualifier
-                $dateStr = $dtm[2] ?? null;
-                if ($dateStr && strlen($dateStr) === 8) {
-                    try {
-                        $parsed = \DateTime::createFromFormat('Ymd', $dateStr);
-                        if ($parsed instanceof \DateTime) {
-                            return $parsed->format('Y-m-d');
-                        }
-                    } catch (\Exception $e) {
-                        \Log::warning("Failed to parse DTM date", ['date_str' => $dateStr]);
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Safely parse a YYYYMMDD date string and return Y-m-d, or null on failure.
-     */
-    private function safeParseYmdDate(?string $dateStr): ?string
-    {
-        if (!$dateStr || strlen($dateStr) !== 8) {
-            return null;
-        }
-
-        try {
-            $parsed = \DateTime::createFromFormat('Ymd', $dateStr);
-            if ($parsed instanceof \DateTime) {
-                return $parsed->format('Y-m-d');
-            }
-        } catch (\Exception $e) {
-            \Log::warning("Failed to parse Ymd date", ['date_str' => $dateStr]);
-        }
-
-        return null;
     }
 }

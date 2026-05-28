@@ -22,16 +22,20 @@ class Edi990ResponseDto
         public ?string $estimatedDeliveryDate = null,
         public ?string $rejectionReason = null,
         public ?array $loadDetails = [],
+        public ?array $shAddress = null,  // N1*SH address block from 990
+        public ?array $cnAddress = null,  // N1*CN address block from 990
     ) {}
 
     public function isAccepted(): bool
     {
-        return $this->responseCode === 'AA';
+        // Standard X12 990 uses 'A'; legacy non-standard tests used 'AA'
+        return \in_array($this->responseCode, ['A', 'AA'], true);
     }
 
     public function isRejected(): bool
     {
-        return $this->responseCode === 'RE';
+        // Standard X12 990 uses 'D' (Decline); legacy used 'RE'
+        return \in_array($this->responseCode, ['D', 'RE'], true);
     }
 
     public function toArray(): array
@@ -48,6 +52,8 @@ class Edi990ResponseDto
             'estimated_delivery_date' => $this->estimatedDeliveryDate,
             'rejection_reason' => $this->rejectionReason,
             'load_details' => $this->loadDetails,
+            'sh_address' => $this->shAddress,
+            'cn_address' => $this->cnAddress,
         ];
     }
 }

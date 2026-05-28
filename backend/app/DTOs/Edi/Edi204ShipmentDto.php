@@ -16,6 +16,7 @@ class Edi204ShipmentDto
         public ?string $weightUom = 'LB',
         public ?array $dimensions = [],  // length, width, height
         public ?string $packageType = null,  // SKD, PLT, CTN, etc.
+        public ?string $commodity = null,
     ) {}
 
     public function addLineItem(Edi204ShipmentLineItemDto $lineItem): void

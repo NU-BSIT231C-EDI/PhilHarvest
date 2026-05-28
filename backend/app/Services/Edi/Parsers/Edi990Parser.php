@@ -16,30 +16,47 @@ class Edi990Parser
 
     /**
      * Parse raw X12 990 string
+     *
+     * Standard X12 990 uses:
+     *   B1  - Beginning Segment: B1[1]=CarrierCode, B1[2]=LoadTenderId
+     *   B1A - Response Type Code: B1A[1]=ResponseCode (A=Accept, D=Decline)
+     *
+     * Non-standard / legacy format uses BEG: BEG[1]=ResponseCode, BEG[2]=LoadTenderId
      */
     public function parse(string $rawEdi): Edi990ResponseDto
     {
         try {
             $this->segments = $this->tokenizeX12($rawEdi);
 
-            // Extract key segments
-            $bgn = $this->findSegment('BEG');  // Beginning
-            $n1 = $this->findSegments('N1');   // Names (Carrier)
-            $dtm = $this->findSegments('DTM'); // Dates
+            $b1  = $this->findSegment('B1');   // Standard beginning segment
+            $b1a = $this->findSegment('B1A');  // Standard response code segment
+            $beg = $this->findSegment('BEG');  // Legacy fallback
+            $n1  = $this->findSegments('N1');
+            $dtm = $this->findSegments('DTM');
 
-            // Parse response code
-            $responseCode = $bgn[1] ?? 'UN';  // AA=Accept, RE=Reject, UN=Unknown
+            // B1A[1] = response code in standard format (A/D/C)
+            // B1[3]  = response code in simplified format (B1*carrier*ref*A)
+            // BEG[1] = response code in legacy format (AA/RE)
+            $responseCode = $b1a[1] ?? $b1[3] ?? $beg[1] ?? 'UN';
+
+            // B1[2] = load tender reference; BEG[2] = legacy equivalent
+            $loadTenderId = ($b1[2] ?? '') !== '' ? $b1[2] : ($beg[2] ?? 'UNKNOWN');
+
+            // B1[1] = Standard Carrier Alpha Code; fall back to N1*CN or N1*SH
+            $b1CarrierId = ($b1[1] ?? '') !== '' ? $b1[1] : null;
 
             $dto = new Edi990ResponseDto(
                 controlNumber: $this->extractControlNumber(),
                 responseCode: $responseCode,
-                loadTenderId: $bgn[2] ?? 'UNKNOWN',
-                carrierId: $this->getCarrierId($n1),
+                loadTenderId: $loadTenderId,
+                carrierId: $b1CarrierId ?? $this->getCarrierId($n1),
                 carrierName: $this->getCarrierName($n1),
                 responseDate: $this->parseDateFromDTM($dtm, '137'),
                 estimatedPickupDate: $this->parseDateFromDTM($dtm, '063'),
                 estimatedDeliveryDate: $this->parseDateFromDTM($dtm, '076'),
-                rejectionReason: $responseCode === 'RE' ? $this->getRejectionReason() : null,
+                rejectionReason: in_array($responseCode, ['RE', 'D'], true) ? $this->getRejectionReason() : null,
+                shAddress: $this->extractN1Group('SH'),
+                cnAddress: $this->extractN1Group('CN'),
             );
 
             return $dto;
@@ -127,7 +144,7 @@ class Edi990Parser
      */
     private function formatX12Date(?string $dateStr): ?string
     {
-        if (!$dateStr || strlen($dateStr) < 8) {
+        if (!$dateStr || \strlen($dateStr) < 8) {
             return null;
         }
 
@@ -162,6 +179,71 @@ class Edi990Parser
             }
         }
         return 'Unknown Carrier';
+    }
+
+    /**
+     * Extract N1 group (N1 + N3 + N4) by qualifier into an address array.
+     * Walks the segment list so N3/N4 are picked up from the correct group.
+     */
+    private function extractN1Group(string $qualifier): ?array
+    {
+        $n1 = $this->findN1Segment($qualifier);
+        if (!$n1) {
+            return null;
+        }
+
+        [$n3, $n4] = $this->findN3N4After($qualifier);
+
+        return [
+            'company_name'   => $n1[2] ?? '',
+            'street'         => $n3[1] ?? '',
+            'address_line_2' => $n3[2] ?? '',
+            'city'           => $n4[1] ?? '',
+            'state'          => $n4[2] ?? '',
+            'postal_code'    => $n4[3] ?? '',
+            'country'        => $n4[4] ?? '',
+        ];
+    }
+
+    private function findN1Segment(string $qualifier): ?array
+    {
+        foreach ($this->segments as $seg) {
+            if (($seg[0] ?? '') === 'N1' && ($seg[1] ?? '') === $qualifier) {
+                return $seg;
+            }
+        }
+        return null;
+    }
+
+    private function findN3N4After(string $qualifier): array
+    {
+        $n3 = null;
+        $n4 = null;
+        $inGroup = false;
+
+        foreach ($this->segments as $seg) {
+            $id = $seg[0] ?? '';
+
+            if ($id === 'N1') {
+                if ($inGroup) break;
+                $inGroup = ($seg[1] ?? '') === $qualifier;
+                continue;
+            }
+
+            if (!$inGroup) {
+                continue;
+            }
+
+            if ($id === 'N3') {
+                $n3 = $seg;
+            } elseif ($id === 'N4') {
+                $n4 = $seg;
+            } else {
+                break;
+            }
+        }
+
+        return [$n3, $n4];
     }
 
     /**

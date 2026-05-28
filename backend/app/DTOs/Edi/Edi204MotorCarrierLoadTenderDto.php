@@ -26,6 +26,7 @@ class Edi204MotorCarrierLoadTenderDto
         public ?string $shipmentClass = null,   // NMFC class
         public ?array $hazmatInfo = null,
         public ?string $specialInstructions = null,
+        public ?string $poNumber = null,
     ) {}
 
     public function addShipment(Edi204ShipmentDto $shipment): void
@@ -51,6 +52,7 @@ class Edi204MotorCarrierLoadTenderDto
             'shipment_class' => $this->shipmentClass,
             'hazmat_info' => $this->hazmatInfo,
             'special_instructions' => $this->specialInstructions,
+            'po_number' => $this->poNumber,
         ];
     }
 }

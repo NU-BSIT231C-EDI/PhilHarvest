@@ -1,0 +1,17 @@
+{
+  "messageId": "test-123",
+  "job": {
+    "displayName": "App\\Jobs\\ProcessEdiInboundJob",
+    "job": "Illuminate\\Queue\\CallQueuedHandler@call",
+    "maxTries": null,
+    "maxExceptions": null,
+    "failOnTimeout": false,
+    "backoff": null,
+    "timeout": null,
+    "retryUntil": null,
+    "data": {
+      "commandName": "App\\Jobs\\ProcessEdiInboundJob",
+      "command": "O:29:\"App\\Jobs\\ProcessEdiInboundJob\":2:{s:15:\"transactionId\";i:1;s:10:\"x12Payload\";s:87:\"ISA*00*          *00*          *ZZ*PHILHARVEST     *ZZ*TEST           *200101*0000*U*00501*000000001*0*P*:\";}"
+    }
+  }
+}
