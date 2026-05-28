@@ -17,7 +17,7 @@
 const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
 const AUTH_TOKEN = import.meta.env.VITE_EDI_AUTH_TOKEN || 'master_api_key_secret_123456';
 
-const HUB_URL = (import.meta.env.VITE_TAPAT_HUB_URL || 'http://98.88.77.137:3002').replace(/\/+$/, '');
+const HUB_URL = (import.meta.env.VITE_TAPAT_HUB_URL || 'http://52.202.47.122:3002').replace(/\/+$/, '');
 const ESTABLISHMENT_ID = import.meta.env.VITE_TAPAT_ESTABLISHMENT_ID || 'TP-PH-001';
 const TERMINAL_ID = import.meta.env.VITE_TAPAT_TERMINAL_ID || 'TERM-PH-WEB-001';
 
